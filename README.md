@@ -208,7 +208,7 @@ See `project_plan.md` for details.
 
 ## TODO
 - rework Robot definition ".chor" file no need to keep choreos format
-- move input output into on directory
+- move inputs and outputs into own directory
 
 
 
