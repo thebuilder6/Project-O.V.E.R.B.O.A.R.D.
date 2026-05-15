@@ -1,0 +1,6 @@
+numpy
+casadi
+plotly
+click
+matplotlib
+rsplan

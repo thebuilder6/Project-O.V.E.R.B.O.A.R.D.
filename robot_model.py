@@ -26,28 +26,43 @@ class RobotConfig:
         Initialize robot configuration from config dictionary.
 
         Args:
-            config_dict: Dictionary containing robot configuration in Choreo format
+            config_dict: Dictionary containing robot configuration in Choreo or JSON format
         """
-        cfg = config_dict.get("config", {})
-
-        # Physical dimensions
-        self.mass = cfg.get("mass", {}).get("val", self.DEFAULT_MASS)
-        self.inertia = cfg.get("inertia", {}).get("val", self.DEFAULT_INERTIA)
-        self.track_width = cfg.get("differentialTrackWidth", {}).get("val", self.DEFAULT_TRACK_WIDTH)
-        self.wheel_radius = cfg.get("radius", {}).get("val", self.DEFAULT_WHEEL_RADIUS)
-
-        # Motor specifications
-        self.v_max_rad_s = cfg.get("vmax", {}).get("val", self.DEFAULT_VMAX)
-        self.t_max_nm = cfg.get("tmax", {}).get("val", self.DEFAULT_TMAX)
-        self.gearing = cfg.get("gearing", {}).get("val", self.DEFAULT_GEARING)
-
-        # Friction
-        self.cof = cfg.get("cof", {}).get("val", self.DEFAULT_COF)
-        self.g = self.GRAVITY
-
-        # Safety margins for real-world tracking (leave headroom for Ramsete corrections)
-        self.torque_headroom = cfg.get("torqueHeadroom", {}).get("val", self.DEFAULT_TORQUE_HEADROOM)
-        self.speed_headroom = cfg.get("speedHeadroom", {}).get("val", self.DEFAULT_SPEED_HEADROOM)
+        # Detect format: new JSON format has "robot" key, old Choreo format has "config" key
+        if "robot" in config_dict:
+            # New JSON format
+            robot_cfg = config_dict.get("robot", {})
+            self.mass = robot_cfg.get("mass", self.DEFAULT_MASS)
+            self.inertia = robot_cfg.get("inertia", self.DEFAULT_INERTIA)
+            self.track_width = robot_cfg.get("track_width", self.DEFAULT_TRACK_WIDTH)
+            self.wheel_radius = robot_cfg.get("wheel_radius", self.DEFAULT_WHEEL_RADIUS)
+            self.v_max_rad_s = robot_cfg.get("v_max_rad_s", self.DEFAULT_VMAX)
+            self.t_max_nm = robot_cfg.get("t_max_nm", self.DEFAULT_TMAX)
+            self.gearing = robot_cfg.get("gearing", self.DEFAULT_GEARING)
+            self.cof = robot_cfg.get("cof", self.DEFAULT_COF)
+            self.g = robot_cfg.get("gravity", self.GRAVITY)
+            self.torque_headroom = robot_cfg.get("torque_headroom", self.DEFAULT_TORQUE_HEADROOM)
+            self.speed_headroom = robot_cfg.get("speed_headroom", self.DEFAULT_SPEED_HEADROOM)
+            
+            # Store multiverse config if present
+            self.multiverse_config = config_dict.get("multiverse", {})
+        else:
+            # Old Choreo format
+            cfg = config_dict.get("config", {})
+            self.mass = cfg.get("mass", {}).get("val", self.DEFAULT_MASS)
+            self.inertia = cfg.get("inertia", {}).get("val", self.DEFAULT_INERTIA)
+            self.track_width = cfg.get("differentialTrackWidth", {}).get("val", self.DEFAULT_TRACK_WIDTH)
+            self.wheel_radius = cfg.get("radius", {}).get("val", self.DEFAULT_WHEEL_RADIUS)
+            self.v_max_rad_s = cfg.get("vmax", {}).get("val", self.DEFAULT_VMAX)
+            self.t_max_nm = cfg.get("tmax", {}).get("val", self.DEFAULT_TMAX)
+            self.gearing = cfg.get("gearing", {}).get("val", self.DEFAULT_GEARING)
+            self.cof = cfg.get("cof", {}).get("val", self.DEFAULT_COF)
+            self.g = self.GRAVITY
+            self.torque_headroom = cfg.get("torqueHeadroom", {}).get("val", self.DEFAULT_TORQUE_HEADROOM)
+            self.speed_headroom = cfg.get("speedHeadroom", {}).get("val", self.DEFAULT_SPEED_HEADROOM)
+            
+            # No multiverse config in old format
+            self.multiverse_config = {}
 
     def get_max_force_at_velocity(self, v_wheel, apply_headroom=True):
         """
@@ -130,6 +145,54 @@ class DifferentialDriveModel:
 
         return fl, fr
 
+    def get_wheel_normal_forces(self, vl, vr, al, ar):
+        """
+        Calculate normal force on each wheel considering weight transfer.
+
+        During acceleration and turning, weight shifts between wheels:
+        - Longitudinal acceleration: weight shifts to rear wheels
+        - Lateral acceleration (turning): weight shifts to outer wheels
+
+        Args:
+            vl: Left wheel velocity (m/s)
+            vr: Right wheel velocity (m/s)
+            al: Left wheel acceleration (m/s²)
+            ar: Right wheel acceleration (m/s²)
+
+        Returns:
+            Tuple of (nl, nr) - Normal forces on left and right wheels (N)
+        """
+        # Linear and angular acceleration
+        a = (al + ar) / 2.0
+        alpha = (ar - al) / self.cfg.track_width
+
+        # Base static weight distribution (assume 50/50)
+        base_normal = (self.cfg.mass * self.cfg.g) / 2.0
+
+        # Longitudinal weight transfer (during acceleration/deceleration)
+        # Assuming center of mass height h_cg (estimate as 50mm for FLL robot)
+        h_cg = 0.05  # meters
+        wheelbase = self.cfg.track_width  # approximate wheelbase as track width
+        longitudinal_transfer = (self.cfg.mass * a * h_cg) / wheelbase
+
+        # Lateral weight transfer (during turning)
+        # Assuming center of mass at track center
+        lateral_transfer = (self.cfg.mass * (a * 0) * h_cg) / self.cfg.track_width  # No lateral force from pure differential drive
+
+        # For differential drive, lateral force comes from centripetal acceleration during turns
+        v = (vl + vr) / 2.0
+        omega = (vr - vl) / self.cfg.track_width
+        centripetal_accel = v * omega
+        lateral_transfer = (self.cfg.mass * centripetal_accel * h_cg) / self.cfg.track_width
+
+        # Normal forces with weight transfer
+        # During acceleration, rear wheels get more load (assuming forward motion)
+        # During turning, outer wheel gets more load
+        nl = base_normal - longitudinal_transfer - lateral_transfer
+        nr = base_normal - longitudinal_transfer + lateral_transfer
+
+        return nl, nr
+
     def check_constraints(self, vl, vr, al, ar, apply_headroom=True):
         """
         Check if given state violates motor or traction limits.
@@ -142,8 +205,12 @@ class DifferentialDriveModel:
             apply_headroom: If True, applies safety margin for real-world tracking
 
         Returns:
-            List of violations [left_motor_violation, right_motor_violation, traction_violation]
-            Values are 0 if no violation, positive if violated
+            Dictionary with violation details:
+            - left_motor_violation: N (0 if no violation)
+            - right_motor_violation: N (0 if no violation)
+            - left_wheel_slip: N (0 if no slip)
+            - right_wheel_slip: N (0 if no slip)
+            - traction_violation: N (0 if no violation, legacy total check)
         """
         fl, fr = self.get_dynamics(vl, vr, al, ar)
 
@@ -154,9 +221,24 @@ class DifferentialDriveModel:
         left_motor_violation = max(0, abs(fl) - fl_max)
         right_motor_violation = max(0, abs(fr) - fr_max)
 
-        # Traction limit (friction circle)
-        # Max traction force = cof * normal force
+        # Individual wheel slip detection with weight transfer
+        nl, nr = self.get_wheel_normal_forces(vl, vr, al, ar)
+        left_traction_limit = self.cfg.cof * nl
+        right_traction_limit = self.cfg.cof * nr
+
+        left_wheel_slip = max(0, abs(fl) - left_traction_limit)
+        right_wheel_slip = max(0, abs(fr) - right_traction_limit)
+
+        # Legacy total traction check (friction circle)
         traction_limit = self.cfg.cof * self.cfg.mass * self.cfg.g
         traction_violation = max(0, abs(fl) + abs(fr) - traction_limit)
 
-        return [left_motor_violation, right_motor_violation, traction_violation]
+        return {
+            "left_motor_violation": left_motor_violation,
+            "right_motor_violation": right_motor_violation,
+            "left_wheel_slip": left_wheel_slip,
+            "right_wheel_slip": right_wheel_slip,
+            "traction_violation": traction_violation,
+            "left_normal_force": nl,
+            "right_normal_force": nr
+        }

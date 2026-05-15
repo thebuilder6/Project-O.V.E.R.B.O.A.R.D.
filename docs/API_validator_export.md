@@ -71,7 +71,7 @@ print(f"Final position error: {errors['final_pos_error_m']:.6f} m")
 
 ### `audit_constraints(samples, robot_cfg: RobotConfig, apply_headroom=True) -> dict`
 
-Re-evaluates motor and traction limits for each sample to detect constraint violations.
+Re-evaluates motor and traction limits for each sample to detect constraint violations and wheel slip.
 
 **Parameters:**
 
@@ -87,12 +87,26 @@ Re-evaluates motor and traction limits for each sample to detect constraint viol
   - `traction_total`: Max traction limit violation (N)
   - `num_violating_samples`: Number of samples with violations
   - `violating_sample_indices`: List of indices of violating samples
+  - `num_slip_points`: Number of samples with wheel slip (NEW)
+  - `left_wheel_slip`: Max left wheel slip force (N) (NEW)
+  - `right_wheel_slip`: Max right wheel slip force (N) (NEW)
+  - `slip_points`: List of slip point details (NEW)
+    - Each entry: `time`, `x`, `y`, `left_wheel_slip_N`, `right_wheel_slip_N`, `left_normal_force_N`, `right_normal_force_N`
 
 **Constraints Checked:**
 
 1. Left motor force: `|fl| <= max_force_at_velocity(vl)`
 2. Right motor force: `|fr| <= max_force_at_velocity(vr)`
 3. Traction limit: `|fl| + |fr| <= cof * mass * g`
+4. Wheel slip: Individual wheel force exceeds friction limit (NEW)
+
+**Wheel Slip Detection:**
+
+The audit now includes wheel slip detection that identifies points where the required wheel force exceeds the friction limit for that individual wheel. This provides early warning of potential tracking issues on real robots. The slip detection computes:
+- Left wheel slip force (excess over friction limit)
+- Right wheel slip force (excess over friction limit)
+- Normal forces on each wheel
+- Slip point locations and times
 
 **Usage Example:**
 
@@ -120,6 +134,15 @@ else:
     print(f"Max left motor violation: {audit['left_motor_force']:.6f} N")
     print(f"Max right motor violation: {audit['right_motor_force']:.6f} N")
     print(f"Max traction violation: {audit['traction_total']:.6f} N")
+
+# Check for wheel slip
+if audit['num_slip_points'] > 0:
+    print(f"Found {audit['num_slip_points']} wheel slip points")
+    print(f"Max left wheel slip: {audit['left_wheel_slip']:.6f} N")
+    print(f"Max right wheel slip: {audit['right_wheel_slip']:.6f} N")
+    print("Slip point details:")
+    for sp in audit['slip_points'][:5]:  # Show first 5
+        print(f"  t={sp['time']:.3f}s at ({sp['x']:.3f}, {sp['y']:.3f})")
 ```
 
 ---

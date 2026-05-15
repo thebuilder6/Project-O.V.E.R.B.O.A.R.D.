@@ -27,7 +27,7 @@ TrajectoryOptimizer(config: RobotConfig)
 
 #### Methods
 
-##### `solve(waypoints, num_samples_per_segment=10, accuracy_weight=0.0, stop_waypoint_indices=None, waypoint_events=None, apply_headroom=True) -> list[dict]`
+##### `solve(waypoints, num_samples_per_segment=10, accuracy_weight=0.0, stop_waypoint_indices=None, waypoint_events=None, apply_headroom=True, verbose=True, capture_iterations=False)`
 
 Solves the trajectory optimization problem using direct collocation.
 
@@ -51,6 +51,8 @@ Solves the trajectory optimization problem using direct collocation.
 - `apply_headroom` (bool): If True, applies safety margin for real-world tracking (default: True)
   - Reduces effective motor torque and speed limits during optimization
   - Ensures Ramsete controller has reserve torque/speed for path corrections
+- `verbose` (bool): If True, prints progress messages (default: True)
+- `capture_iterations` (bool): If True, captures intermediate solver states for convergence visualization (default: False)
 
 **Returns:**
 

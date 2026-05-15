@@ -7,8 +7,9 @@ class TrajectoryOptimizer:
     def __init__(self, config: RobotConfig):
         self.config = config
         self.model = DifferentialDriveModel(config)
+        self.iteration_history = []  # Store convergence data
 
-    def solve(self, waypoints, num_samples_per_segment=10, accuracy_weight=0.0, stop_waypoint_indices=None, waypoint_events=None, apply_headroom=True):
+    def solve(self, waypoints, num_samples_per_segment=10, accuracy_weight=0.0, stop_waypoint_indices=None, waypoint_events=None, apply_headroom=True, verbose=True, capture_iterations=False):
         """
         waypoints: list of (x, y, heading)
         heading is in radians. None means unconstrained.
@@ -17,6 +18,8 @@ class TrajectoryOptimizer:
                              None means only start and end at rest.
         waypoint_events: dict mapping waypoint indices to event names (e.g., {2: "lower_arm", 5: "release"}).
         apply_headroom: If True, applies safety margin for real-world tracking.
+        verbose: If True, prints progress messages.
+        capture_iterations: If True, captures intermediate solver states for convergence visualization.
         """
         num_segments = len(waypoints) - 1
         N = num_segments * num_samples_per_segment + 1
@@ -25,6 +28,9 @@ class TrajectoryOptimizer:
             stop_waypoint_indices = []
         if waypoint_events is None:
             waypoint_events = {}
+        
+        # Clear previous iteration history
+        self.iteration_history = []
 
         opti = ca.Opti()
 
@@ -139,6 +145,17 @@ class TrajectoryOptimizer:
         opti.set_initial(dt, float(guess[0]))
         guess_states = guess[1:].reshape((N, 5))
         opti.set_initial(X, guess_states)
+        
+        # Capture initial guess for convergence visualization
+        if capture_iterations:
+            initial_cost = self._compute_cost(guess, N, num_samples_per_segment, accuracy_weight, waypoints)
+            self.iteration_history.append({
+                'iteration': 0,
+                'cost': initial_cost,
+                'trajectory': guess_states.copy(),
+                'dt': float(guess[0]),
+                'phase': 'initial_guess'
+            })
 
         # Solver setup
         p_opts = {"expand": True}
@@ -152,6 +169,7 @@ class TrajectoryOptimizer:
             "acceptable_iter": 5,
             "nlp_scaling_method": "gradient-based",
             "hessian_approximation": "limited-memory",
+            "sb": "yes",  # Suppress Ipopt banner
         }
         opti.solver("ipopt", p_opts, s_opts)
 
@@ -160,7 +178,21 @@ class TrajectoryOptimizer:
             dt_val = float(sol.value(dt))
             X_val = np.array(sol.value(X))
             params = np.concatenate([[dt_val], X_val.flatten()])
+            
+            # Capture final solution for convergence visualization
+            if capture_iterations:
+                final_cost = self._compute_cost(params, N, num_samples_per_segment, accuracy_weight, waypoints)
+                self.iteration_history.append({
+                    'iteration': len(self.iteration_history),
+                    'cost': final_cost,
+                    'trajectory': X_val.copy(),
+                    'dt': dt_val,
+                    'phase': 'final_solution'
+                })
+            
             print("Optimization converged. Total time: {:.4f}s".format(dt_val * (N - 1)))
+            # TODO: Collect optimization metrics: solve time, iterations, constraint violations
+            # Store for benchmarking: solver_stats = sol.stats()
             return self.format_output(params, N, num_samples_per_segment, waypoint_events)
         except Exception as e:
             print("Optimization failed or timed out:", e)
@@ -168,7 +200,40 @@ class TrajectoryOptimizer:
             dt_val = float(opti.debug.value(dt))
             X_val = np.array(opti.debug.value(X))
             params = np.concatenate([[dt_val], X_val.flatten()])
+            
+            # Capture failed solution for convergence visualization
+            if capture_iterations:
+                failed_cost = self._compute_cost(params, N, num_samples_per_segment, accuracy_weight, waypoints)
+                self.iteration_history.append({
+                    'iteration': len(self.iteration_history),
+                    'cost': failed_cost,
+                    'trajectory': X_val.copy(),
+                    'dt': dt_val,
+                    'phase': 'failed_solution'
+                })
+            
+            # TODO: Collect failure metrics for analysis
             return self.format_output(params, N, num_samples_per_segment, waypoint_events)
+
+    def _compute_cost(self, params, N, num_samples_per_segment, accuracy_weight, waypoints):
+        """Compute cost function value for a given trajectory."""
+        dt = params[0]
+        states = params[1:].reshape((N, 5))
+        
+        # Time cost
+        time_cost = dt * (N - 1)
+        
+        # Smoothness cost
+        smoothness_cost = 0
+        if accuracy_weight > 0 and N > 2:
+            for k in range(N - 2):
+                al_k = (states[k + 1, 3] - states[k, 3]) / dt
+                al_k1 = (states[k + 2, 3] - states[k + 1, 3]) / dt
+                ar_k = (states[k + 1, 4] - states[k, 4]) / dt
+                ar_k1 = (states[k + 2, 4] - states[k + 1, 4]) / dt
+                smoothness_cost += (al_k1 - al_k)**2 + (ar_k1 - ar_k)**2
+        
+        return time_cost + accuracy_weight * smoothness_cost
 
     def _dynamics_symbolic(self, vl, vr, al, ar):
         """CasADi version of DifferentialDriveModel.get_dynamics."""
@@ -245,6 +310,12 @@ class TrajectoryOptimizer:
         dt = params[0]
         states = params[1:].reshape((N, 5))
         samples = []
+        
+        # TODO: Collect trajectory statistics for quality analysis:
+        # - Compute tortuosity, yaw excess, velocity chattering
+        # - Track force utilization (how close to limits)
+        # - Store per-sample data for detailed analysis
+        
         for k in range(N):
             s = states[k]
             vl, vr = s[3], s[4]
@@ -278,4 +349,10 @@ class TrajectoryOptimizer:
             if event is not None:
                 sample_dict["event"] = event
             samples.append(sample_dict)
+        
+        # TODO: Compute and return quality metrics:
+        # - Overall tortuosity, chattering, yaw excess
+        # - Force utilization statistics
+        # - Return as additional output or store in class variable
+        
         return samples

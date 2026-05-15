@@ -110,7 +110,7 @@ def forward_integrate(samples, robot_cfg: RobotConfig, fine_dt: float = 0.001):
 def audit_constraints(samples, robot_cfg: RobotConfig, apply_headroom=True):
     """
     Re-evaluate motor and traction limits for each sample.
-    Returns max violations and a list of violating sample indices.
+    Returns max violations and a list of violating sample indices with slip details.
     
     Args:
         samples: Trajectory samples
@@ -118,21 +118,61 @@ def audit_constraints(samples, robot_cfg: RobotConfig, apply_headroom=True):
         apply_headroom: If True, applies safety margin for real-world tracking
     """
     model = DifferentialDriveModel(robot_cfg)
-    max_violations = [0.0, 0.0, 0.0]  # fl motor, fr motor, traction
+    
+    # Track max violations
+    max_violations = {
+        "left_motor_force": 0.0,
+        "right_motor_force": 0.0,
+        "left_wheel_slip": 0.0,
+        "right_wheel_slip": 0.0,
+        "traction_total": 0.0
+    }
+    
+    # Track violating samples with details
     violating_indices = []
-
+    slip_points = []  # Detailed slip information
+    
     for i, s in enumerate(samples):
         violations = model.check_constraints(s["vl"], s["vr"], s["al"], s["ar"], apply_headroom)
-        for j, v in enumerate(violations):
-            if v > 1e-6:
-                max_violations[j] = max(max_violations[j], v)
-        if any(v > 1e-6 for v in violations):
+        
+        # Update max violations
+        for key in max_violations:
+            if violations[key] > max_violations[key]:
+                max_violations[key] = violations[key]
+        
+        # Check for any violation
+        has_violation = any(violations[k] > 1e-6 for k in ["left_motor_violation", "right_motor_violation", "traction_violation"])
+        has_slip = violations["left_wheel_slip"] > 1e-6 or violations["right_wheel_slip"] > 1e-6
+        
+        if has_violation:
             violating_indices.append(i)
-
-    labels = ["left_motor_force", "right_motor_force", "traction_total"]
-    audit: dict = dict(zip(labels, [float(v) for v in max_violations]))
-    audit["num_violating_samples"] = len(violating_indices)
-    audit["violating_sample_indices"] = violating_indices
+        
+        if has_slip:
+            slip_points.append({
+                "index": i,
+                "time": s["t"],
+                "x": s["x"],
+                "y": s["y"],
+                "heading": s["heading"],
+                "left_wheel_slip_N": violations["left_wheel_slip"],
+                "right_wheel_slip_N": violations["right_wheel_slip"],
+                "left_normal_force_N": violations["left_normal_force"],
+                "right_normal_force_N": violations["right_normal_force"],
+                "vl": s["vl"],
+                "vr": s["vr"]
+            })
+    
+    audit = {
+        "left_motor_force": float(max_violations["left_motor_force"]),
+        "right_motor_force": float(max_violations["right_motor_force"]),
+        "left_wheel_slip": float(max_violations["left_wheel_slip"]),
+        "right_wheel_slip": float(max_violations["right_wheel_slip"]),
+        "traction_total": float(max_violations["traction_total"]),
+        "num_violating_samples": len(violating_indices),
+        "violating_sample_indices": violating_indices,
+        "num_slip_points": len(slip_points),
+        "slip_points": slip_points
+    }
     return audit
 
 
@@ -141,6 +181,13 @@ def compute_metrics(samples):
     if not samples:
         return {}
 
+    # TODO: Collect additional detailed metrics for whitepaper:
+    # - Average speed, acceleration, jerk (not just max)
+    # - Speed/acceleration distributions (percentiles)
+    # - Force utilization statistics (how close to motor/traction limits)
+    # - Time spent in different regimes (accelerating, cruising, decelerating)
+    # - Heading change statistics
+    
     t = [s["t"] for s in samples]
     vl = [s["vl"] for s in samples]
     vr = [s["vr"] for s in samples]
@@ -184,6 +231,12 @@ def validate_trajectory(traj_file: str, config_file: str, apply_headroom=True):
         config_file: Path to config file
         apply_headroom: If True, applies safety margin for real-world tracking
     """
+    # TODO: Collect comprehensive validation data for benchmarking:
+    # - Store metrics, audit, errors in structured format
+    # - Record validation time
+    # - Track constraint violation patterns (which constraints, where, when)
+    # - Store for whitepaper empirical data collection
+    
     with open(traj_file, "r") as f:
         traj_data = json.load(f)
     with open(config_file, "r") as f:
@@ -202,6 +255,7 @@ def validate_trajectory(traj_file: str, config_file: str, apply_headroom=True):
     print("\n-- Metrics --")
     for k, v in metrics.items():
         print(f"  {k}: {v:.4f}")
+    # TODO: Store metrics for benchmarking
 
     # Constraint audit
     audit = audit_constraints(samples, robot_cfg, apply_headroom)
@@ -211,20 +265,42 @@ def validate_trajectory(traj_file: str, config_file: str, apply_headroom=True):
         print(f"  Indices: {audit['violating_sample_indices']}")
     for label in ["left_motor_force", "right_motor_force", "traction_total"]:
         print(f"  Max {label} violation: {audit[label]:.6f} N")
+    
+    # Wheel slip detection
+    print(f"\n-- Wheel Slip Detection --")
+    print(f"  Slip points: {audit['num_slip_points']}")
+    print(f"  Max left wheel slip: {audit['left_wheel_slip']:.6f} N")
+    print(f"  Max right wheel slip: {audit['right_wheel_slip']:.6f} N")
+    
+    if audit['num_slip_points'] > 0:
+        print(f"\n  Slip point details (first 5):")
+        for i, sp in enumerate(audit['slip_points'][:5]):
+            print(f"    [{i}] t={sp['time']:.3f}s at ({sp['x']:.3f}, {sp['y']:.3f})")
+            if sp['left_wheel_slip_N'] > 1e-6:
+                print(f"        Left wheel slip: {sp['left_wheel_slip_N']:.6f} N (normal: {sp['left_normal_force_N']:.2f} N)")
+            if sp['right_wheel_slip_N'] > 1e-6:
+                print(f"        Right wheel slip: {sp['right_wheel_slip_N']:.6f} N (normal: {sp['right_normal_force_N']:.2f} N)")
+        if audit['num_slip_points'] > 5:
+            print(f"    ... and {audit['num_slip_points'] - 5} more")
+    # TODO: Store audit data for analysis of constraint violation patterns
 
     # Forward integration
     integrated, errors = forward_integrate(samples, robot_cfg, fine_dt=0.001)
     print("\n-- Forward Integration (1 ms RK4) --")
     for k, v in errors.items():
         print(f"  {k}: {v:.6f}")
+    # TODO: Store integrated trajectory and errors for tracking analysis
 
     # Pass / fail summary
     ok = (
         errors["max_pos_error_m"] < 0.01
         and errors["final_pos_error_m"] < 0.01
         and audit["num_violating_samples"] == 0
+        and audit["num_slip_points"] == 0
     )
     print(f"\n{'PASS' if ok else 'WARN'} — trajectory {'is' if ok else 'may not be'} safe to run.")
+    # TODO: Store pass/fail result and summary statistics
+    
     return metrics, audit, errors
 
 

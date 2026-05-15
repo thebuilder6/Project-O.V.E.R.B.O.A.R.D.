@@ -1,0 +1,42 @@
+{
+  "name": "fll_choreo",
+  "version": 3,
+  "type": "Differential",
+  "robot": {
+    "mass": 0.723,
+    "inertia": 0.0024,
+    "track_width": 0.0965,
+    "wheel_radius": 0.028,
+    "v_max_rad_s": 15.7,
+    "t_max_nm": 0.04,
+    "gearing": 1.0,
+    "cof": 0.40,
+    "gravity": 9.81,
+    "torque_headroom": 0.85,
+    "speed_headroom": 0.90
+  },
+  "multiverse": {
+    "enable_parallel": true,
+    "num_workers": 2,
+    "stomp_variants": 5,
+    "stomp_noise": {
+      "position_std": 0.05,
+      "heading_std": 0.1
+    },
+    "teb_weights": {
+      "forward_bias": 10.0,
+      "reverse_bias": 10.0,
+      "point_turn_bias": 5.0,
+      "wide_sweep_bias": 2.0
+    },
+    "critic_thresholds": {
+      "tortuosity": 1.5,
+      "yaw_buffer_rad": 0.5,
+      "velocity_chattering_threshold": 3
+    },
+    "bootstrap": {
+      "turning_radius": 0.0,
+      "resolution": 0.05
+    }
+  }
+}

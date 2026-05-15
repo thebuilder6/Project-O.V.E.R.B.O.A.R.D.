@@ -4,35 +4,60 @@ import os
 import numpy as np
 from robot_model import RobotConfig
 from optimizer import TrajectoryOptimizer
+from multiverse_optimizer import MasterTrajectoryOptimizer
 from plotter import plot_trajectory
+from animated_plotter import animate_trajectory
 from validator import validate_trajectory
 from export import write_controller_file, write_python_file
+from convergence_plotter import plot_convergence, animate_convergence, ConvergencePlotter
 
 @click.command()
-@click.option('--config', '-c', required=True, type=click.Path(exists=True), help='Path to the .chor configuration file.')
-@click.option('--waypoints', '-w', required=True, type=click.Path(exists=True), help='Path to waypoints JSON file.')
-@click.option('--output', '-o', default='output.traj', help='Output trajectory file path.')
-@click.option('--samples', '-n', default=10, help='Samples per segment.')
-@click.option('--accuracy-weight', '-a', default=0.0, type=float, help='Smoothness/accuracy weight (0 = pure time-optimal).')
-@click.option('--stop-waypoints', default='', type=str, help='Comma-separated list of waypoint indices where robot must stop (e.g., "2,5,7").')
-@click.option('--events', default='', type=str, help='Comma-separated list of waypoint:event pairs (e.g., "2:lower_arm,5:release").')
+@click.option('-c', '--config', required=True, type=click.Path(exists=True), help='Path to the configuration file (.chor or .json).')
+@click.option('-w', '--waypoints', required=True, type=click.Path(exists=True), help='Path to waypoints JSON file.')
+@click.option('-o', '--output', default='output.traj', type=str, help='Output trajectory file path.')
+@click.option('-n', '--samples', default=10, type=int, help='Samples per segment.')
+@click.option('-a', '--accuracy-weight', default=0.0, type=float, help='Smoothness/accuracy weight (0 = pure time-optimal).')
+@click.option('--stop-waypoints', default=None, type=str, help='Comma-separated waypoint indices where robot must stop (e.g., "2,5,7").')
+@click.option('--events', default=None, type=str, help='Comma-separated waypoint:event pairs (e.g., "2:lower_arm,5:release").')
 @click.option('--validate', is_flag=True, help='Run validation report on the generated trajectory.')
-@click.option('--export-format', default='none', type=click.Choice(['none', 'controller', 'python']), help='Export format for controller consumption.')
+@click.option('--export-format', type=click.Choice(['none', 'controller', 'python'], case_sensitive=False), default='none', help='Export format for controller consumption.')
 @click.option('--controller-dt', default=0.02, type=float, help='Fixed timestep for controller export (seconds).')
 @click.option('--plot', is_flag=True, help='Plot the resulting trajectory.')
-def main(config, waypoints, output, samples, accuracy_weight, stop_waypoints, events, validate, export_format, controller_dt, plot):
+@click.option('--animate', is_flag=True, help='Animate the trajectory in real-time.')
+@click.option('--simple', is_flag=True, help='Use simple optimizer instead of Multi-Verse refinement.')
+@click.option('--no-parallel', is_flag=True, help='Disable parallel processing for Multi-Verse refinement.')
+@click.option('--workers', default=8, type=int, help='Number of parallel workers for Multi-Verse refinement.')
+@click.option('--benchmark', is_flag=True, help='Collect comprehensive benchmarking data for whitepaper.')
+@click.option('--quiet', '-q', is_flag=True, help='Suppress verbose output (cleaner terminal).')
+@click.option('--show-convergence', is_flag=True, help='Show convergence visualization after optimization.')
+@click.option('--convergence-mode', type=click.Choice(['parallel', 'best', 'layered'], case_sensitive=False), default='best', help='Convergence visualization mode.')
+@click.option('--convergence-animate', is_flag=True, help='Animate convergence instead of static plot.')
+@click.option('--convergence-output', type=str, default=None, help='Save convergence plot to file (e.g., convergence.png). If not specified, displays interactively.')
+def main(config, waypoints, output, samples, accuracy_weight, stop_waypoints, events, validate, export_format, controller_dt, plot, animate, simple, no_parallel, workers, benchmark, quiet, show_convergence, convergence_mode, convergence_animate, convergence_output):
     """
     FLL Trajectory Optimizer CLI.
     Generates time-optimal trajectories for Lego robots.
     """
-    click.echo(f"Loading config from {config}...")
+    if not quiet:
+        click.echo(f"Loading config from {config}...")
     with open(config, 'r') as f:
         config_data = json.load(f)
     
     robot_cfg = RobotConfig(config_data)
-    optimizer = TrajectoryOptimizer(robot_cfg)
     
-    click.echo(f"Loading waypoints from {waypoints}...")
+    # Choose optimizer based on --simple flag
+    if simple:
+        if not quiet:
+            click.echo("Using simple optimizer (legacy mode)")
+        optimizer = TrajectoryOptimizer(robot_cfg)
+    else:
+        parallel = not no_parallel
+        if not quiet:
+            click.echo(f"Using Multi-Verse optimizer (parallel={parallel}, workers={workers})")
+        optimizer = MasterTrajectoryOptimizer(robot_cfg, enable_parallel=parallel, num_workers=workers, verbose=not quiet)
+    
+    if not quiet:
+        click.echo(f"Loading waypoints from {waypoints}...")
     with open(waypoints, 'r') as f:
         wp_data = json.load(f)
     
@@ -49,14 +74,19 @@ def main(config, waypoints, output, samples, accuracy_weight, stop_waypoints, ev
             # Assume [x, y, heading]
             wps.append((item[0], item[1], item[2] if len(item) > 2 else None))
 
-    click.echo(f"Optimizing trajectory through {len(wps)} waypoints (accuracy_weight={accuracy_weight})...")
+    if not quiet:
+        click.echo(f"Optimizing trajectory through {len(wps)} waypoints (accuracy_weight={accuracy_weight})...")
+
+    # Enable iteration capture if convergence visualization is requested
+    capture_iterations = show_convergence
 
     # Parse stop waypoints
     stop_indices = []
     if stop_waypoints:
         try:
             stop_indices = [int(x.strip()) for x in stop_waypoints.split(',')]
-            click.echo(f"Stop waypoints at indices: {stop_indices}")
+            if not quiet:
+                click.echo(f"Stop waypoints at indices: {stop_indices}")
         except ValueError:
             click.echo("Invalid stop waypoints format. Use comma-separated indices (e.g., '2,5,7').")
 
@@ -66,11 +96,19 @@ def main(config, waypoints, output, samples, accuracy_weight, stop_waypoints, ev
             for pair in events.split(','):
                 idx_str, event_name = pair.strip().split(':')
                 waypoint_events[int(idx_str.strip())] = event_name.strip()
-            click.echo(f"Events at waypoints: {waypoint_events}")
+            if not quiet:
+                click.echo(f"Events at waypoints: {waypoint_events}")
         except ValueError:
             click.echo("Invalid events format. Use 'index:event' pairs separated by commas (e.g., '2:lower_arm,5:release').")
 
-    samples_data = optimizer.solve(wps, num_samples_per_segment=samples, accuracy_weight=accuracy_weight, stop_waypoint_indices=stop_indices, waypoint_events=waypoint_events)
+    # TODO: If benchmark flag is set, collect comprehensive data:
+    # - Measure total solve time
+    # - Collect solver statistics (iterations, constraint violations)
+    # - Store trajectory quality metrics (tortuosity, chattering, etc.)
+    # - Save to structured JSON file for whitepaper analysis
+    # - Include configuration parameters for reproducibility
+    
+    samples_data = optimizer.solve(wps, num_samples_per_segment=samples, accuracy_weight=accuracy_weight, stop_waypoint_indices=stop_indices, waypoint_events=waypoint_events, verbose=not quiet, capture_iterations=capture_iterations)
     
     # Construct Choreo-like output
     result = {
@@ -85,7 +123,8 @@ def main(config, waypoints, output, samples, accuracy_weight, stop_waypoints, ev
     with open(output, 'w') as f:
         json.dump(result, f, indent=1)
     
-    click.echo(f"Successfully saved trajectory to {output}")
+    if not quiet:
+        click.echo(f"Successfully saved trajectory to {output}")
 
     if validate:
         validate_trajectory(output, config)
@@ -102,6 +141,40 @@ def main(config, waypoints, output, samples, accuracy_weight, stop_waypoints, ev
     if plot:
         plot_trajectory(samples_data, waypoints=wps,
                         title=f"Trajectory: {os.path.basename(output)}")
+
+    if animate:
+        animate_trajectory(samples_data, waypoints=wps,
+                          title=f"Trajectory: {os.path.basename(output)}")
+    
+    if show_convergence:
+        if hasattr(optimizer, 'iteration_history') and optimizer.iteration_history:
+            if not quiet:
+                click.echo(f"Showing convergence visualization ({convergence_mode} mode)...")
+            if convergence_animate:
+                if convergence_output:
+                    animate_convergence(optimizer.iteration_history, waypoints=wps,
+                                     title=f"Convergence: {os.path.basename(output)}",
+                                     save_path=convergence_output)
+                    if not quiet:
+                        click.echo(f"Convergence animation saved to {convergence_output}")
+                else:
+                    animate_convergence(optimizer.iteration_history, waypoints=wps,
+                                     title=f"Convergence: {os.path.basename(output)}")
+            else:
+                if convergence_output:
+                    # Save to HTML file
+                    plot_convergence(optimizer.iteration_history, mode=convergence_mode, 
+                                   waypoints=wps, title=f"Convergence: {os.path.basename(output)}",
+                                   output_file=convergence_output)
+                    if not quiet:
+                        click.echo(f"Convergence plot saved to {convergence_output}")
+                else:
+                    # Open in browser
+                    plot_convergence(optimizer.iteration_history, mode=convergence_mode, 
+                                   waypoints=wps, title=f"Convergence: {os.path.basename(output)}")
+        else:
+            if not quiet:
+                click.echo("No iteration history available for convergence visualization.")
 
 if __name__ == '__main__':
     main()

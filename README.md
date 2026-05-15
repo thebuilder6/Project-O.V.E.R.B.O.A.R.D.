@@ -8,8 +8,11 @@ A high-performance trajectory optimizer for LEGO differential-drive robots in FI
 - **Physics-aware modeling**: Accounts for motor torque curves, wheel dynamics, and traction limits
 - **Accuracy tuning**: Optional smoothness penalty to improve real-world tracking accuracy
 - **Fast optimization**: Sub-second solve times using CasADi + IPOPT
+- **Multi-Verse refinement**: Advanced optimization with parallel processing for complex paths
 - **Trajectory validation**: Forward-integration verification with constraint checking
 - **Controller export**: Resamples trajectories to fixed timesteps for on-robot execution
+- **Event markers**: Trigger robot actions at specific waypoints
+- **Stop constraints**: Force robot to come to rest at waypoints
 - **Choreo-compatible**: Uses Choreo-like configuration format for easy migration
 
 ## Installation
@@ -39,18 +42,37 @@ Create a `.chor` file with your robot's physical parameters:
 
 ```json
 {
+  "name": "my_robot",
+  "version": 2,
+  "type": "Differential",
   "config": {
     "mass": {"val": 0.8},
-    "inertia": {"val": 0.001},
+    "inertia": {"val": 0.000001},
     "differentialTrackWidth": {"val": 0.0965},
     "radius": {"val": 0.028},
     "vmax": {"val": 15.7},
     "tmax": {"val": 0.04},
     "gearing": {"val": 1.0},
-    "cof": {"val": 1.5}
+    "cof": {"val": 1.5},
+    "torqueHeadroom": {"val": 0.85},
+    "speedHeadroom": {"val": 0.90}
   }
 }
 ```
+
+**Key parameters:**
+- `mass`: Robot mass in kg (0.5-1.5 kg typical)
+- `inertia`: Rotational inertia in kg·m² (1e-6 to 1e-4 typical)
+- `differentialTrackWidth`: Distance between wheel centers in meters
+- `radius`: Wheel radius in meters
+- `vmax`: Motor no-load speed in rad/s (RPM × 2π/60)
+- `tmax`: Motor stall torque in N·m
+- `gearing`: Gear ratio (1.0 for direct drive)
+- `cof`: Coefficient of friction (1.0-1.5 for FLL mats)
+- `torqueHeadroom`: Safety margin for motor torque (0.85 recommended)
+- `speedHeadroom`: Safety margin for wheel speed (0.90 recommended)
+
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for detailed parameter explanations and calibration procedures.
 
 ### 2. Define waypoints
 
@@ -64,18 +86,28 @@ Create a JSON file with waypoints:
 ]
 ```
 
+**Waypoint options:**
+- `x`, `y`: Position in meters (required)
+- `heading`: Heading in radians (optional, use `null` for unconstrained)
+- `stop`: Force robot to stop at this waypoint (optional, default: `false`)
+- `event`: Trigger an action at this waypoint (optional, e.g., `"lower_arm"`)
+
 ### 3. Generate a trajectory
 
 ```bash
 python main.py -c fll_choreo.chor -w test_waypoints.json -o output.traj --plot
 ```
 
-### 4. (Optional) Validate and export for controller
+### 4. Validate and export for controller
 
 ```bash
 python main.py -c fll_choreo.chor -w test_waypoints.json -o output.traj \
   --validate --export-format controller --controller-dt 0.02
 ```
+
+This generates two files:
+- `output.traj`: Full trajectory with variable timesteps (for analysis)
+- `output_controller.json`: Fixed 20ms timesteps (for robot controller)
 
 ## CLI Options
 
@@ -83,30 +115,44 @@ python main.py -c fll_choreo.chor -w test_waypoints.json -o output.traj \
 Usage: main.py [OPTIONS]
 
 Options:
-  -c, --config PATH           Path to the .chor configuration file. [required]
-  -w, --waypoints PATH        Path to waypoints JSON file. [required]
-  -o, --output TEXT           Output trajectory file path. [default: output.traj]
-  -s, --samples INTEGER       Samples per segment. [default: 10]
-  -a, --accuracy-weight FLOAT Smoothness/accuracy weight (0 = pure time-optimal). [default: 0.0]
-  --validate                  Run validation report on the generated trajectory.
-  --export-format [none|controller] Export format for controller consumption. [default: none]
-  --controller-dt FLOAT       Fixed timestep for controller export (seconds). [default: 0.02]
-  --plot                      Plot the resulting trajectory.
+  -c, --config PATH              Path to the configuration file (.chor or .json). [required]
+  -w, --waypoints PATH           Path to waypoints JSON file. [required]
+  -o, --output TEXT              Output trajectory file path. [default: output.traj]
+  -n, --samples INTEGER          Samples per segment. [default: 10]
+  -a, --accuracy-weight FLOAT    Smoothness/accuracy weight (0 = pure time-optimal). [default: 0.0]
+  --stop-waypoints TEXT          Comma-separated waypoint indices where robot must stop (e.g., "2,5,7").
+  --events TEXT                  Comma-separated waypoint:event pairs (e.g., "2:lower_arm,5:release").
+  --validate                     Run validation report on the generated trajectory.
+  --export-format [none|controller|python] Export format for controller consumption. [default: none]
+  --controller-dt FLOAT          Fixed timestep for controller export (seconds). [default: 0.02]
+  --plot                        Plot the resulting trajectory.
+  --simple                       Use simple optimizer instead of Multi-Verse refinement.
+  --no-parallel                  Disable parallel processing for Multi-Verse refinement.
+  --workers INTEGER              Number of parallel workers for Multi-Verse refinement. [default: 8]
 ```
 
 ## Project Structure
 
 ```
-FLL_Paths/
-├── main.py              # CLI entry point
-├── optimizer.py         # Core trajectory optimization (CasADi + IPOPT)
-├── robot_model.py       # Robot configuration and differential drive dynamics
-├── validator.py         # Trajectory validation via forward integration
-├── export.py            # Controller-ready export with fixed timesteps
-├── plotter.py           # Trajectory visualization
-├── README.md            # This file
-├── project_plan.md      # Development roadmap
-└── trajectory_tools_research.md  # Research notes and references
+FLL_Choreo/
+├── main.py                    # CLI entry point
+├── optimizer.py               # Core trajectory optimization (CasADi + IPOPT)
+├── multiverse_optimizer.py    # Advanced Multi-Verse refinement optimizer
+├── robot_model.py             # Robot configuration and differential drive dynamics
+├── validator.py               # Trajectory validation via forward integration
+├── export.py                  # Controller-ready export with fixed timesteps
+├── plotter.py                 # Trajectory visualization
+├── path_planning.py           # Path planning utilities
+├── fll_choreo.chor            # Example robot configuration file
+├── example_*.json             # Example waypoint files
+├── README.md                  # This file
+├── docs/
+│   ├── CONFIGURATION.md       # Detailed configuration guide
+│   ├── EXAMPLES.md            # Usage examples
+│   ├── API_optimizer.md       # Optimizer API documentation
+│   ├── API_robot_model.md     # Robot model API documentation
+│   └── API_validator_export.md # Validator and export API documentation
+└── pybricks_code/             # Pybricks robot controller examples
 ```
 
 ## How It Works
@@ -120,10 +166,47 @@ The optimizer uses **direct collocation** to solve an optimal control problem:
    - Motor torque limits (velocity-dependent)
    - Traction limits (wheel slip prevention)
    - Waypoint constraints (position and optional heading)
+   - Stop constraints (velocity = 0 at specified waypoints)
    - Start/end at rest
 4. **Objective**: Minimize total time + optional smoothness penalty (jerk)
 
 The solver (IPOPT) finds the optimal trajectory that satisfies all constraints in sub-second time.
+
+### Multi-Verse Refinement
+
+For complex paths, the optimizer can use **Multi-Verse refinement**:
+- Generates multiple candidate trajectories with different initial conditions
+- Refines the best candidates in parallel
+- Produces higher-quality trajectories for challenging paths
+- Use `--simple` flag to disable and use the basic optimizer
+
+## Common Usage Patterns
+
+### Simple straight line
+
+```bash
+python main.py -c fll_choreo.chor -w example_straight.json -o straight.traj --plot
+```
+
+### Path with turns
+
+```bash
+python main.py -c fll_choreo.chor -w example_s_curve.json -o s_curve.traj --plot
+```
+
+### Mission with stops and events
+
+```bash
+python main.py -c fll_choreo.chor -w example_complete.json -o mission.traj \
+  --validate --export-format controller --controller-dt 0.02 --plot
+```
+
+### Smooth trajectory for better tracking
+
+```bash
+python main.py -c fll_choreo.chor -w waypoints.json -o smooth.traj \
+  -a 1.0 --validate --plot
+```
 
 ## Accuracy vs. Speed Tradeoff
 
@@ -199,19 +282,32 @@ See `trajectory_tools_research.md` for:
 
 ## Development Status
 
-✅ Phase 1: CasADi + IPOPT solver (complete)  
-✅ Phase 2: Time vs. accuracy tradeoff (complete)  
-✅ Phase 3: Validation & controller export (complete)  
-⚪ Phase 4: Field geometry/obstacle constraints (optional)
+✅ Phase 1: CasADi + IPOPT solver (complete)
+✅ Phase 2: Time vs. accuracy tradeoff (complete)
+✅ Phase 3: Validation & controller export (complete)
+✅ Phase 4: Multi-Verse refinement optimizer (complete)
+✅ Phase 5: Event markers and stop constraints (complete)
+⚪ Phase 6: Field geometry/obstacle constraints (optional)
 
 See `project_plan.md` for details.
 
-## TODO
-- rework Robot definition ".chor" file no need to keep choreos format
-- move inputs and outputs into own directory
-- replace the linear initial guess with a Dubins/Reeds-Shepp Curve generator
+## Additional Documentation
 
+- **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)**: Detailed robot configuration guide with calibration procedures
+- **[docs/EXAMPLES.md](docs/EXAMPLES.md)**: Comprehensive usage examples and troubleshooting
+- **[docs/API_optimizer.md](docs/API_optimizer.md)**: Optimizer API reference
+- **[docs/API_robot_model.md](docs/API_robot_model.md)**: Robot model API reference
+- **[docs/API_validator_export.md](docs/API_validator_export.md)**: Validator and export API reference
 
+## Pybricks Integration
+
+The `pybricks_code/` directory contains example robot controller code for Pybricks:
+- `robot.py`: Base robot class with Ramsete controller
+- `ramsete.py`: Ramsete trajectory following algorithm
+- `mission_*.py`: Example mission scripts
+- `plot_tracking.py`: Trajectory tracking visualization
+
+See `pybricks_code/README.md` for Pybricks setup instructions.
 
 ## License
 

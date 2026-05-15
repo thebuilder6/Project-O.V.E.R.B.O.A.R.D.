@@ -2,6 +2,14 @@
 
 This document provides practical examples for using the FLL Trajectory Optimizer.
 
+## Table of Contents
+
+- [Basic Examples](#basic-examples)
+- [Advanced Examples](#advanced-examples)
+- [Python API Examples](#python-api-examples)
+- [Troubleshooting Examples](#troubleshooting-examples)
+- [Integration Examples](#integration-examples)
+
 ## Basic Examples
 
 ### Example 1: Simple Two-Point Path
@@ -87,11 +95,31 @@ python main.py -c fll_choreo.chor -w waypoints.json -o arc.traj --plot
 
 ---
 
+### Example 4: Using Built-in Example Files
+
+The repository includes several example waypoint files:
+
+```bash
+# Straight line
+python main.py -c fll_choreo.chor -w example_straight.json -o straight.traj --plot
+
+# S-curve path
+python main.py -c fll_choreo.chor -w example_s_curve.json -o s_curve.traj --plot
+
+# Complete mission with stops and events
+python main.py -c fll_choreo.chor -w example_complete.json -o complete.traj --plot
+
+# Complex mission
+python main.py -c fll_choreo.chor -w example_complex_mission.json -o complex.traj --plot
+```
+
+---
+
 ## Advanced Examples
 
-### Example 4: Intermediate Stops
+### Example 5: Intermediate Stops (JSON)
 
-Generate a trajectory with stops at specific waypoints:
+Generate a trajectory with stops at specific waypoints using JSON:
 
 **waypoints_with_stops.json:**
 
@@ -123,9 +151,22 @@ python main.py -c fll_choreo.chor -w waypoints_with_stops.json -o stops.traj --p
 
 ---
 
-### Example 5: Event Markers
+### Example 6: Intermediate Stops (CLI)
 
-Generate a trajectory with mission event markers:
+Alternatively, specify stops via CLI flag:
+
+```bash
+python main.py -c fll_choreo.chor -w waypoints.json -o stops.traj \
+  --stop-waypoints "0,2,4" --plot
+```
+
+This forces the robot to stop at waypoints 0, 2, and 4 (0-indexed).
+
+---
+
+### Example 7: Event Markers (JSON)
+
+Generate a trajectory with mission event markers using JSON:
 
 **waypoints_with_events.json:**
 
@@ -152,19 +193,24 @@ python main.py -c fll_choreo.chor -w waypoints_with_events.json -o events.traj \
 - Controller export preserves events at nearest timestep
 - Robot controller reads events and triggers actions (arm, intake, release)
 
-**CLI Override:**
+---
 
-You can also specify events via CLI flag:
+### Example 8: Event Markers (CLI)
+
+Alternatively, specify events via CLI flag:
 
 ```bash
-python main.py -c fll_choreo.chor -w waypoints.json --events "2:lower_arm,5:release"
+python main.py -c fll_choreo.chor -w waypoints.json -o events.traj \
+  --events "1:lower_arm,3:release" \
+  --export-format controller \
+  --controller-dt 0.02
 ```
 
-**Use case:** FLL missions where robot needs to execute specific actions at waypoints (lower arm to pick up object, release to drop object, intake to collect pieces).
+Format: `--events "index:event,index:event,..."` where index is the 0-based waypoint index.
 
 ---
 
-### Example 6: Accuracy Weighting
+### Example 9: Accuracy Weighting
 
 Compare time-optimal vs. smooth trajectories:
 
@@ -194,7 +240,7 @@ python main.py -c fll_choreo.chor -w waypoints.json -o very_smooth.traj -a 5.0 -
 
 ---
 
-### Example 7: Controller Export
+### Example 10: Controller Export
 
 Generate a trajectory and export for on-robot execution:
 
@@ -228,37 +274,89 @@ python main.py -c fll_choreo.chor -w waypoints.json -o traj.traj \
 
 ---
 
-### Example 8: Varying Sample Density
+### Example 11: Python Export
+
+Export trajectory as a Python file for direct import:
+
+```bash
+python main.py -c fll_choreo.chor -w waypoints.json -o traj.traj \
+  --export-format python
+```
+
+**Output file:** `traj.py` with a `samples` list containing trajectory data.
+
+**Use case:** Direct integration with Python-based robot controllers or analysis scripts.
+
+---
+
+### Example 12: Varying Sample Density
 
 Compare different sample densities:
 
 **Low density (fast, less accurate):**
 
 ```bash
-python main.py -c fll_choreo.chor -w waypoints.json -o low_res.traj -s 5
+python main.py -c fll_choreo.chor -w waypoints.json -o low_res.traj -n 5
 ```
 
 **Medium density (default):**
 
 ```bash
-python main.py -c fll_choreo.chor -w waypoints.json -o med_res.traj -s 10
+python main.py -c fll_choreo.chor -w waypoints.json -o med_res.traj -n 10
 ```
 
 **High density (slower, more accurate):**
 
 ```bash
-python main.py -c fll_choreo.chor -w waypoints.json -o high_res.traj -s 20
+python main.py -c fll_choreo.chor -w waypoints.json -o high_res.traj -n 20
 ```
 
 **Tradeoffs:**
 
-- `-s 5`: Faster optimization, but may miss sharp turns
-- `-s 10`: Good balance for most FLL paths
-- `-s 20`: Slower optimization, smoother curves, better for complex paths
+- `-n 5`: Faster optimization, but may miss sharp turns
+- `-n 10`: Good balance for most FLL paths
+- `-n 20`: Slower optimization, smoother curves, better for complex paths
 
 ---
 
-### Example 9: Complex FLL Mission Path
+### Example 13: Multi-Verse Refinement
+
+Use the advanced Multi-Verse optimizer for complex paths:
+
+```bash
+python main.py -c fll_choreo.chor -w complex_waypoints.json -o complex.traj \
+  -n 15 \
+  -a 1.0 \
+  --validate \
+  --plot
+```
+
+The Multi-Verse optimizer:
+- Generates multiple candidate trajectories with different initial conditions
+- Refines the best candidates in parallel (default: 8 workers)
+- Produces higher-quality trajectories for challenging paths
+
+**Disable parallel processing:**
+
+```bash
+python main.py -c fll_choreo.chor -w waypoints.json -o output.traj --no-parallel
+```
+
+**Use simple optimizer (legacy mode):**
+
+```bash
+python main.py -c fll_choreo.chor -w waypoints.json -o output.traj --simple
+```
+
+**Adjust worker count:**
+
+```bash
+python main.py -c fll_choreo.chor -w waypoints.json -o output.traj --workers 16
+```
+
+---
+
+### Example 14: Complex FLL Mission Path
 
 Generate a trajectory for a typical FLL mission:
 
@@ -278,7 +376,7 @@ Generate a trajectory for a typical FLL mission:
 
 ```bash
 python main.py -c fll_choreo.chor -w mission_waypoints.json -o mission.traj \
-  -s 10 \
+  -n 10 \
   -a 0.5 \
   --validate \
   --export-format controller \
@@ -297,7 +395,7 @@ python main.py -c fll_choreo.chor -w mission_waypoints.json -o mission.traj \
 
 ## Python API Examples
 
-### Example 10: Using the Optimizer Directly
+### Example 15: Using the Optimizer Directly
 
 ```python
 from robot_model import RobotConfig
@@ -332,7 +430,52 @@ print(f"Max speed: {max(s['vl'] + s['vr'] for s in samples) / 2:.3f} m/s")
 
 ---
 
-### Example 11: Validating a Trajectory
+### Example 16: Using Multi-Verse Optimizer
+
+```python
+from robot_model import RobotConfig
+from multiverse_optimizer import MasterTrajectoryOptimizer
+import json
+
+# Load configuration
+with open('fll_choreo.chor', 'r') as f:
+    config_data = json.load(f)
+
+robot_cfg = RobotConfig(config_data)
+optimizer = MasterTrajectoryOptimizer(
+    robot_cfg,
+    enable_parallel=True,
+    num_workers=8
+)
+
+# Define waypoints
+waypoints = [
+    (0.0, 0.0, 0.0),
+    (0.5, 0.3, 0.5),
+    (1.0, 0.0, 0.0),
+    (1.5, 0.3, -0.5),
+    (2.0, 0.0, 0.0)
+]
+
+# Solve with stops and events
+stop_waypoint_indices = [0, 2, 4]
+waypoint_events = {1: "lower_arm", 3: "release"}
+
+samples = optimizer.solve(
+    waypoints,
+    num_samples_per_segment=15,
+    accuracy_weight=1.0,
+    stop_waypoint_indices=stop_waypoint_indices,
+    waypoint_events=waypoint_events
+)
+
+print(f"Total time: {samples[-1]['t']:.3f}s")
+print(f"Number of samples: {len(samples)}")
+```
+
+---
+
+### Example 17: Validating a Trajectory
 
 ```python
 from validator import validate_trajectory
@@ -366,7 +509,7 @@ print(f"\nTrajectory is {'SAFE' if is_safe else 'UNSAFE'}")
 
 ---
 
-### Example 12: Exporting for Controller
+### Example 18: Exporting for Controller
 
 ```python
 from export import write_controller_file
@@ -389,7 +532,7 @@ print(f"First sample: {ctrl_data['samples'][0]}")
 
 ---
 
-### Example 13: Comparing Accuracy Weights
+### Example 19: Comparing Accuracy Weights
 
 ```python
 from robot_model import RobotConfig
@@ -438,33 +581,34 @@ Accuracy Weight | Time (s) | Max Accel (m/s²) | Max Jerk (m/s³)
 
 ## Troubleshooting Examples
 
-### Example 14: Debugging Optimization Failure
+### Example 20: Debugging Optimization Failure
 
 If optimization fails or times out:
 
 ```bash
 # First, try with fewer samples
-python main.py -c fll_choreo.chor -w waypoints.json -o test.traj -s 5
+python main.py -c fll_choreo.chor -w waypoints.json -o test.traj -n 5
 
 # If that works, gradually increase
-python main.py -c fll_choreo.chor -w waypoints.json -o test.traj -s 10
-python main.py -c fll_choreo.chor -w waypoints.json -o test.traj -s 15
+python main.py -c fll_choreo.chor -w waypoints.json -o test.traj -n 10
+python main.py -c fll_choreo.chor -w waypoints.json -o test.traj -n 15
 ```
 
 Check for:
 
 - Infeasible waypoints (too far apart for robot speed)
 - Incorrect config parameters (wrong units, unrealistic values)
+- Conflicting constraints (e.g., stops too close together)
 
 ---
 
-### Example 15: Checking Constraint Violations
+### Example 21: Checking Constraint Violations
 
 If validation shows constraint violations:
 
 ```bash
 # Run validation to see details
-python validator.py output.traj fll_choreo.chor
+python main.py -c fll_choreo.chor -w waypoints.json -o output.traj --validate
 ```
 
 **Output interpretation:**
@@ -479,24 +623,63 @@ python validator.py output.traj fll_choreo.chor
 - Increase `cof` (friction coefficient)
 - Add accuracy weight to smooth trajectory
 - Increase sample density for better resolution
+- Adjust `torqueHeadroom` or `speedHeadroom` in config
+
+---
+
+### Example 22: Robot Tracking Poorly
+
+If the robot deviates significantly from the planned path:
+
+**Symptoms:**
+- Large position errors (> 10 mm)
+- Consistent overshoot at waypoints
+- Robot slips during turns
+
+**Solutions:**
+
+1. **Increase accuracy weight:**
+```bash
+python main.py -c fll_choreo.chor -w waypoints.json -o smooth.traj -a 2.0
+```
+
+2. **Check configuration:**
+- Verify wheel radius (measure under load)
+- Verify motor specs (vmax, tmax)
+- Check friction coefficient for actual surface
+
+3. **Add headroom:**
+```json
+{
+  "config": {
+    "torqueHeadroom": {"val": 0.80},
+    "speedHeadroom": {"val": 0.85}
+  }
+}
+```
+
+4. **Increase sample density:**
+```bash
+python main.py -c fll_choreo.chor -w waypoints.json -o high_res.traj -n 20
+```
 
 ---
 
 ## Integration Examples
 
-### Example 16: Batch Processing Multiple Paths
+### Example 23: Batch Processing Multiple Paths
 
 ```python
 import os
 import json
 from robot_model import RobotConfig
-from optimizer import TrajectoryOptimizer
+from multiverse_optimizer import MasterTrajectoryOptimizer
 
 # Load config once
 with open('fll_choreo.chor', 'r') as f:
     config_data = json.load(f)
 robot_cfg = RobotConfig(config_data)
-optimizer = TrajectoryOptimizer(robot_cfg)
+optimizer = MasterTrajectoryOptimizer(robot_cfg, enable_parallel=True, num_workers=8)
 
 # Process multiple waypoint files
 waypoint_files = [
@@ -531,7 +714,7 @@ for wp_file in waypoint_files:
 
 ---
 
-### Example 17: Generating Comparison Plots
+### Example 24: Generating Comparison Plots
 
 ```python
 from plotter import plot_trajectory
@@ -555,7 +738,7 @@ plot_trajectory(samples, waypoints=waypoints, title="FLL Mission Trajectory")
 
 ---
 
-### Example 18: Complete FLL Mission (All Features)
+### Example 25: Complete FLL Mission (All Features)
 
 Generate a comprehensive trajectory using all available features: stops, events, accuracy weighting, validation, controller export, and plotting.
 
@@ -643,23 +826,3 @@ Exported 762 controller samples at dt=0.02s to complete_mission_controller.json
 - `complete_mission_controller.json`: Fixed 20ms timestep for robot controller with events
 
 **Use case:** Complete FLL mission with multiple segments, stops for precision, events for mechanism control, and validation for safety.
-
-```python
-from plotter import plot_trajectory
-import json
-
-# Load trajectory
-with open('output.traj', 'r') as f:
-    traj_data = json.load(f)
-
-samples = traj_data['trajectory']['samples']
-
-# Load waypoints
-with open('waypoints.json', 'r') as f:
-    wp_data = json.load(f)
-
-waypoints = [(w['x'], w['y'], w.get('heading')) for w in wp_data]
-
-# Plot with waypoints overlay
-plot_trajectory(samples, waypoints=waypoints, title="FLL Mission Trajectory")
-```
