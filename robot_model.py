@@ -27,43 +27,25 @@ class RobotConfig:
         Initialize robot configuration from config dictionary.
 
         Args:
-            config_dict: Dictionary containing robot configuration in Choreo or JSON format
+            config_dict: Dictionary containing robot configuration in the new JSON format
         """
-        # Detect format: new JSON format has "robot" key, old Choreo format has "config" key
-        if "robot" in config_dict:
-            # New JSON format
-            robot_cfg = config_dict.get("robot", {})
-            self.mass = robot_cfg.get("mass", self.DEFAULT_MASS)
-            self.inertia = robot_cfg.get("inertia", self.DEFAULT_INERTIA)
-            self.track_width = robot_cfg.get("track_width", self.DEFAULT_TRACK_WIDTH)
-            self.wheel_radius = robot_cfg.get("wheel_radius", self.DEFAULT_WHEEL_RADIUS)
-            self.v_max_rad_s = robot_cfg.get("v_max_rad_s", self.DEFAULT_VMAX)
-            self.t_max_nm = robot_cfg.get("t_max_nm", self.DEFAULT_TMAX)
-            self.gearing = robot_cfg.get("gearing", self.DEFAULT_GEARING)
-            self.cof = robot_cfg.get("cof", self.DEFAULT_COF)
-            self.g = robot_cfg.get("gravity", self.GRAVITY)
-            self.torque_headroom = robot_cfg.get("torque_headroom", self.DEFAULT_TORQUE_HEADROOM)
-            self.speed_headroom = robot_cfg.get("speed_headroom", self.DEFAULT_SPEED_HEADROOM)
-            
-            # Store multiverse config if present
-            self.multiverse_config = config_dict.get("multiverse", {})
-        else:
-            # Old Choreo format
-            cfg = config_dict.get("config", {})
-            self.mass = cfg.get("mass", {}).get("val", self.DEFAULT_MASS)
-            self.inertia = cfg.get("inertia", {}).get("val", self.DEFAULT_INERTIA)
-            self.track_width = cfg.get("differentialTrackWidth", {}).get("val", self.DEFAULT_TRACK_WIDTH)
-            self.wheel_radius = cfg.get("radius", {}).get("val", self.DEFAULT_WHEEL_RADIUS)
-            self.v_max_rad_s = cfg.get("vmax", {}).get("val", self.DEFAULT_VMAX)
-            self.t_max_nm = cfg.get("tmax", {}).get("val", self.DEFAULT_TMAX)
-            self.gearing = cfg.get("gearing", {}).get("val", self.DEFAULT_GEARING)
-            self.cof = cfg.get("cof", {}).get("val", self.DEFAULT_COF)
-            self.g = self.GRAVITY
-            self.torque_headroom = cfg.get("torqueHeadroom", {}).get("val", self.DEFAULT_TORQUE_HEADROOM)
-            self.speed_headroom = cfg.get("speedHeadroom", {}).get("val", self.DEFAULT_SPEED_HEADROOM)
-            
-            # No multiverse config in old format
-            self.multiverse_config = {}
+        # Support both a nested "robot" key or a flat dictionary
+        robot_cfg = config_dict.get("robot", config_dict)
+        
+        self.mass = robot_cfg.get("mass", self.DEFAULT_MASS)
+        self.inertia = robot_cfg.get("inertia", self.DEFAULT_INERTIA)
+        self.track_width = robot_cfg.get("track_width", self.DEFAULT_TRACK_WIDTH)
+        self.wheel_radius = robot_cfg.get("wheel_radius", self.DEFAULT_WHEEL_RADIUS)
+        self.v_max_rad_s = robot_cfg.get("v_max_rad_s", self.DEFAULT_VMAX)
+        self.t_max_nm = robot_cfg.get("t_max_nm", self.DEFAULT_TMAX)
+        self.gearing = robot_cfg.get("gearing", self.DEFAULT_GEARING)
+        self.cof = robot_cfg.get("cof", self.DEFAULT_COF)
+        self.g = robot_cfg.get("gravity", self.GRAVITY)
+        self.torque_headroom = robot_cfg.get("torque_headroom", self.DEFAULT_TORQUE_HEADROOM)
+        self.speed_headroom = robot_cfg.get("speed_headroom", self.DEFAULT_SPEED_HEADROOM)
+        
+        # Store multiverse config if present
+        self.multiverse_config = config_dict.get("multiverse", {})
 
     def get_max_force_at_velocity(self, v_wheel: float, apply_headroom: bool = True) -> float:
         """

@@ -2,7 +2,7 @@ from typing import List, Dict, Tuple, Any, Optional
 import numpy as np
 import casadi as ca
 from robot_model import RobotConfig, DifferentialDriveModel
-
+from live_visualizer import get_visualizer
 
 class TrajectoryOptimizer:
     def __init__(self, config: RobotConfig) -> None:
@@ -10,7 +10,7 @@ class TrajectoryOptimizer:
         self.model = DifferentialDriveModel(config)
         self.iteration_history: List[Dict[str, Any]] = []  # Store convergence data
 
-    def solve(self, waypoints: List[Tuple[float, float, Optional[float]]], num_samples_per_segment: int = 10, accuracy_weight: float = 0.0, stop_waypoint_indices: Optional[List[int]] = None, waypoint_events: Optional[Dict[int, str]] = None, apply_headroom: bool = True, verbose: bool = True, capture_iterations: bool = False) -> List[Dict[str, Any]]:
+    def solve(self, waypoints: List[Tuple[float, float, Optional[float]]], num_samples_per_segment: int = 10, accuracy_weight: float = 0.0, stop_waypoint_indices: Optional[List[int]] = None, waypoint_events: Optional[Dict[int, str]] = None, apply_headroom: bool = True, verbose: bool = True, capture_iterations: bool = False, live_viz: bool = False) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
         """
         waypoints: list of (x, y, heading)
         heading is in radians. None means unconstrained.
@@ -21,6 +21,7 @@ class TrajectoryOptimizer:
         apply_headroom: If True, applies safety margin for real-world tracking.
         verbose: If True, prints progress messages.
         capture_iterations: If True, captures intermediate solver states for convergence visualization.
+        live_viz: If True, streams live updates to the WebSocket visualizer.
         """
         num_segments = len(waypoints) - 1
         N = num_segments * num_samples_per_segment + 1
@@ -30,6 +31,9 @@ class TrajectoryOptimizer:
         if waypoint_events is None:
             waypoint_events = {}
         
+        import time
+        start_time = time.time()
+
         # Clear previous iteration history
         self.iteration_history = []
 
@@ -174,6 +178,26 @@ class TrajectoryOptimizer:
         }
         opti.solver("ipopt", p_opts, s_opts)
 
+        if live_viz:
+            viz = get_visualizer()
+            def callback(iteration):
+                try:
+                    # Get current state from debug
+                    X_curr = np.array(opti.debug.value(X))
+                    # Convert to list of dicts for JSON serialization
+                    traj_data = []
+                    for k in range(N):
+                        traj_data.append({
+                            "x": float(X_curr[k, 0]),
+                            "y": float(X_curr[k, 1]),
+                            "heading": float(X_curr[k, 2])
+                        })
+                    viz.send_state(iteration, traj_data, phase="global_solve")
+                except Exception:
+                    pass
+            
+            opti.callback(callback)
+
         try:
             sol = opti.solve()
             dt_val = float(sol.value(dt))
@@ -192,9 +216,14 @@ class TrajectoryOptimizer:
                 })
             
             print("Optimization converged. Total time: {:.4f}s".format(dt_val * (N - 1)))
-            # TODO: Collect optimization metrics: solve time, iterations, constraint violations
-            # Store for benchmarking: solver_stats = sol.stats()
-            return self.format_output(params, N, num_samples_per_segment, waypoint_events)
+            
+            stats = sol.stats()
+            stats["total_time"] = time.time() - start_time
+            stats["initial_cost"] = self._compute_cost(guess, N, num_samples_per_segment, accuracy_weight, waypoints)
+            stats["final_cost"] = dt_val * (N - 1)
+            stats["converged"] = True
+            
+            return self.format_output(params, N, num_samples_per_segment, waypoint_events), stats
         except Exception as e:
             print("Optimization failed or timed out:", e)
             # Return best-effort from debug values
@@ -213,8 +242,14 @@ class TrajectoryOptimizer:
                     'phase': 'failed_solution'
                 })
             
-            # TODO: Collect failure metrics for analysis
-            return self.format_output(params, N, num_samples_per_segment, waypoint_events)
+            stats = {
+                "total_time": time.time() - start_time,
+                "initial_cost": self._compute_cost(guess, N, num_samples_per_segment, accuracy_weight, waypoints),
+                "final_cost": dt_val * (N - 1),
+                "converged": False,
+                "error": str(e)
+            }
+            return self.format_output(params, N, num_samples_per_segment, waypoint_events), stats
 
     def _compute_cost(self, params: np.ndarray, N: int, num_samples_per_segment: int, accuracy_weight: float, waypoints: List[Tuple[float, float, Optional[float]]]) -> float:
         """Compute cost function value for a given trajectory."""

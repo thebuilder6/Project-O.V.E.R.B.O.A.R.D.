@@ -122,11 +122,11 @@ def audit_constraints(samples: List[Dict[str, Any]], robot_cfg: RobotConfig, app
     
     # Track max violations
     max_violations = {
-        "left_motor_force": 0.0,
-        "right_motor_force": 0.0,
+        "left_motor_violation": 0.0,
+        "right_motor_violation": 0.0,
         "left_wheel_slip": 0.0,
         "right_wheel_slip": 0.0,
-        "traction_total": 0.0
+        "traction_violation": 0.0
     }
     
     # Track violating samples with details
@@ -164,11 +164,11 @@ def audit_constraints(samples: List[Dict[str, Any]], robot_cfg: RobotConfig, app
             })
     
     audit = {
-        "left_motor_force": float(max_violations["left_motor_force"]),
-        "right_motor_force": float(max_violations["right_motor_force"]),
+        "left_motor_force": float(max_violations["left_motor_violation"]),
+        "right_motor_force": float(max_violations["right_motor_violation"]),
         "left_wheel_slip": float(max_violations["left_wheel_slip"]),
         "right_wheel_slip": float(max_violations["right_wheel_slip"]),
-        "traction_total": float(max_violations["traction_total"]),
+        "traction_total": float(max_violations["traction_violation"]),
         "num_violating_samples": len(violating_indices),
         "violating_sample_indices": violating_indices,
         "num_slip_points": len(slip_points),

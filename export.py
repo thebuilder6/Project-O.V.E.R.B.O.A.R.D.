@@ -140,18 +140,24 @@ def write_python_file(input_traj_file: str, output_file: str) -> None:
         traj_data = json.load(f)
 
     samples = traj_data["trajectory"]["samples"]
-    cfg = traj_data["trajectory"]["config"]
+    cfg = traj_data["trajectory"].get("robot", traj_data["trajectory"].get("config", {}))
 
-    # Extract robot config parameters
+    # Extract robot config parameters robustly
+    def get_val(key, default):
+        val = cfg.get(key, default)
+        if isinstance(val, dict):
+            return val.get("val", default)
+        return val
+
     config_dict = {
-        "mass": cfg.get("mass", {}).get("val", 0.8),
-        "inertia": cfg.get("inertia", {}).get("val", 0.001),
-        "track_width": cfg.get("differentialTrackWidth", {}).get("val", 0.0965),
-        "wheel_radius": cfg.get("radius", {}).get("val", 0.028),
-        "v_max_rad_s": cfg.get("vmax", {}).get("val", 15.7),
-        "t_max_nm": cfg.get("tmax", {}).get("val", 0.04),
-        "gearing": cfg.get("gearing", {}).get("val", 1.0),
-        "cof": cfg.get("cof", {}).get("val", 1.0),
+        "mass": get_val("mass", 0.8),
+        "inertia": get_val("inertia", 0.001),
+        "track_width": get_val("differentialTrackWidth", 0.0965),
+        "wheel_radius": get_val("radius", 0.028),
+        "v_max_rad_s": get_val("vmax", 15.7),
+        "t_max_nm": get_val("tmax", 0.04),
+        "gearing": get_val("gearing", 1.0),
+        "cof": get_val("cof", 1.0),
     }
 
     # Build Python code string

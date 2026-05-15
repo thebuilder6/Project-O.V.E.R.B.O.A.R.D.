@@ -109,6 +109,17 @@ This generates two files:
 - `output.traj`: Full trajectory with variable timesteps (for analysis)
 - `output_controller.json`: Fixed 20ms timesteps (for robot controller)
 
+### 5. Live Visualization (Optional)
+
+To see the optimization progress in real-time in your browser:
+
+1. Run the optimizer with the `--live` flag:
+   ```bash
+   python main.py -c fll_choreo.chor -w test_waypoints.json --live
+   ```
+2. Open `viz/index.html` in any modern web browser.
+3. The visualizer will connect to the WebSocket server and show trajectory updates as they happen.
+
 ## CLI Options
 
 ```
@@ -126,6 +137,11 @@ Options:
   --export-format [none|controller|python] Export format for controller consumption. [default: none]
   --controller-dt FLOAT          Fixed timestep for controller export (seconds). [default: 0.02]
   --plot                        Plot the resulting trajectory.
+  --animate                     Animate the trajectory in real-time.
+  --live                        Enable live interactive visualization in browser.
+  --show-convergence            Show convergence visualization (Plotly).
+  --convergence-mode [parallel|best|layered] Convergence visualization mode. [default: best]
+  --convergence-animate         Animate convergence.
   --simple                       Use simple optimizer instead of Multi-Verse refinement.
   --no-parallel                  Disable parallel processing for Multi-Verse refinement.
   --workers INTEGER              Number of parallel workers for Multi-Verse refinement. [default: 8]
@@ -207,6 +223,23 @@ python main.py -c fll_choreo.chor -w example_complete.json -o mission.traj \
 python main.py -c fll_choreo.chor -w waypoints.json -o smooth.traj \
   -a 1.0 --validate --plot
 ```
+
+### Power User Optimization (All-in-One)
+
+For complex missions, use the full suite of Multi-Verse features:
+
+```bash
+python main.py -c robot_config.json -w waypoints.json -o mission.json \
+  -a 1.0 --workers 8 --live --benchmark --validate --export-format controller \
+  --show-convergence --convergence-animate
+```
+
+- **-a 1.0**: Smoothness priority
+- **--workers 8**: Parallel refinement
+- **--live**: Interactive visualization
+- **--benchmark**: Performance telemetry
+- **--validate**: Physical safety check
+- **--show-convergence**: Progress analysis
 
 ## Accuracy vs. Speed Tradeoff
 

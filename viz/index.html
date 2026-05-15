@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLL Choreo - Live Visualizer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --panel-bg: rgba(30, 41, 59, 0.7);
+            --accent-color: #38bdf8;
+            --accent-glow: rgba(56, 189, 248, 0.5);
+            --text-color: #f1f5f9;
+            --text-muted: #94a3b8;
+            --danger: #ef4444;
+            --success: #22c55e;
+            --card-border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(56, 189, 248, 0.15) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.15) 0px, transparent 50%);
+            color: var(--text-color);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #header {
+            padding: 30px 20px 10px;
+            text-align: center;
+            z-index: 10;
+        }
+
+        h1 {
+            margin: 0;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            background: linear-gradient(to right, #38bdf8, #818cf8);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-size: 2.5rem;
+        }
+
+        #status-container {
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--danger);
+            box-shadow: 0 0 10px var(--danger);
+            transition: all 0.3s ease;
+        }
+
+        .status-dot.connected {
+            background-color: var(--success);
+            box-shadow: 0 0 10px var(--success);
+        }
+
+        #main-layout {
+            display: flex;
+            width: 100%;
+            max-width: 1200px;
+            flex: 1;
+            padding: 20px;
+            gap: 20px;
+            box-sizing: border-box;
+            align-items: stretch;
+        }
+
+        #viz-wrapper {
+            flex: 1;
+            position: relative;
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        canvas {
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        #sidebar {
+            width: 300px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .card {
+            background: var(--panel-bg);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+        }
+
+        .card-title {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+
+        .metric {
+            margin-bottom: 15px;
+        }
+
+        .metric-label {
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--accent-color);
+        }
+
+        #controls {
+            display: flex;
+            gap: 10px;
+            margin-top: auto;
+        }
+
+        button {
+            flex: 1;
+            background: rgba(56, 189, 248, 0.1);
+            color: var(--accent-color);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            padding: 12px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        button:hover:not(:disabled) {
+            background: var(--accent-color);
+            color: var(--bg-color);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px var(--accent-glow);
+        }
+
+        button:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        #log-container {
+            flex: 1;
+            overflow-y: auto;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column-reverse;
+        }
+
+        .log-entry {
+            margin-bottom: 4px;
+            border-left: 2px solid transparent;
+            padding-left: 8px;
+        }
+
+        .log-entry.state { border-left-color: var(--accent-color); }
+        .log-entry.info { border-left-color: var(--text-muted); }
+
+        /* Animation for the "Live" pulse */
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.5); opacity: 0; }
+            100% { transform: scale(1); opacity: 0; }
+        }
+
+        .live-badge {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(239, 68, 68, 0.1);
+            color: #ef4444;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .live-dot {
+            width: 6px;
+            height: 6px;
+            background: #ef4444;
+            border-radius: 50%;
+            position: relative;
+        }
+
+        .live-dot::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: #ef4444;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <h1>FLL Choreo Live</h1>
+        <div id="status-container">
+            <div id="status-dot" class="status-dot"></div>
+            <span id="status-text">Searching for solver...</span>
+        </div>
+    </div>
+
+    <div id="main-layout">
+        <div id="viz-wrapper">
+            <div class="live-badge" id="live-badge" style="display: none;">
+                <div class="live-dot"></div>
+                Live
+            </div>
+            <canvas id="vizCanvas"></canvas>
+        </div>
+
+        <div id="sidebar">
+            <div class="card">
+                <div class="card-title">Solver Telemetry</div>
+                <div class="metric">
+                    <div class="metric-label">Current Phase</div>
+                    <div id="phase-val" class="metric-value">Idle</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Iteration</div>
+                    <div id="iter-val" class="metric-value">0</div>
+                </div>
+                <div class="metric">
+                    <div class="metric-label">Samples</div>
+                    <div id="sample-val" class="metric-value">0</div>
+                </div>
+            </div>
+
+            <div class="card" style="flex: 1; display: flex; flex-direction: column;">
+                <div class="card-title">Live Log</div>
+                <div id="log-container"></div>
+            </div>
+
+            <div id="controls">
+                <button id="clearBtn">Clear View</button>
+                <button id="reconnectBtn">Force Reconnect</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('vizCanvas');
+        const ctx = canvas.getContext('2d');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+        const phaseVal = document.getElementById('phase-val');
+        const iterVal = document.getElementById('iter-val');
+        const sampleVal = document.getElementById('sample-val');
+        const logContainer = document.getElementById('log-container');
+        const liveBadge = document.getElementById('live-badge');
+        
+        function resize() {
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth * window.devicePixelRatio;
+            canvas.height = container.clientHeight * window.devicePixelRatio;
+            canvas.style.width = container.clientWidth + 'px';
+            canvas.style.height = container.clientHeight + 'px';
+            draw(lastTrajectory);
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        let ws = null;
+        let reconnectTimeout;
+
+        function connect() {
+            if (ws) {
+                ws.onclose = null;
+                ws.onerror = null;
+                ws.close();
+            }
+            
+            // Try localhost by default for Windows compatibility
+            const url = `ws://localhost:8765`;
+            
+            log(`Attempting connection to ${url}...`, 'info');
+            try {
+                ws = new WebSocket(url);
+            } catch (e) {
+                log(`Failed to create WebSocket: ${e}`, 'info');
+                reconnectTimeout = setTimeout(connect, 2000);
+                return;
+            }
+            
+            ws.onopen = () => {
+                statusDot.classList.add('connected');
+                statusText.innerText = 'Connected to solver';
+                liveBadge.style.display = 'flex';
+                log('Connection established', 'info');
+                clearTimeout(reconnectTimeout);
+            };
+            
+            ws.onclose = () => {
+                statusDot.classList.remove('connected');
+                statusText.innerText = 'Solver offline - Retrying...';
+                liveBadge.style.display = 'none';
+                log('Connection lost', 'info');
+                
+                clearTimeout(reconnectTimeout);
+                reconnectTimeout = setTimeout(connect, 2000);
+            };
+            
+            ws.onerror = (err) => {
+                log('Connection error', 'info');
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'state') {
+                        lastTrajectory = data.trajectory;
+                        phaseVal.innerText = data.phase || 'solve';
+                        iterVal.innerText = data.iteration || '0';
+                        sampleVal.innerText = data.trajectory.length;
+                        
+                        if (data.iteration % 5 === 0 || data.phase.includes('refinement')) {
+                             log(`Received update: ${data.phase} (iter ${data.iteration})`, 'state');
+                        }
+                        
+                        draw(data.trajectory);
+                    }
+                } catch (e) {
+                    console.error('Failed to parse message', e);
+                }
+            };
+        }
+
+        function log(msg, type) {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const time = new Date().toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            entry.innerText = `[${time}] ${msg}`;
+            logContainer.prepend(entry);
+            
+            if (logContainer.childNodes.length > 50) {
+                logContainer.removeChild(logContainer.lastChild);
+            }
+        }
+
+        let lastTrajectory = [];
+        
+        function draw(trajectory) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw Grid
+            drawGrid();
+            
+            if (!trajectory || trajectory.length === 0) return;
+            
+            // Scaling logic
+            const padding = 80 * window.devicePixelRatio;
+            const w = canvas.width - padding * 2;
+            const h = canvas.height - padding * 2;
+            
+            // Find bounds
+            let minX = Math.min(...trajectory.map(p => p.x));
+            let maxX = Math.max(...trajectory.map(p => p.x));
+            let minY = Math.min(...trajectory.map(p => p.y));
+            let maxY = Math.max(...trajectory.map(p => p.y));
+            
+            // Ensure some minimum size for the view
+            const dataWidth = Math.max(maxX - minX, 0.5);
+            const dataHeight = Math.max(maxY - minY, 0.5);
+            
+            const scale = Math.min(w / dataWidth, h / dataHeight);
+            
+            const offsetX = (canvas.width - dataWidth * scale) / 2 - minX * scale;
+            const offsetY = (canvas.height - dataHeight * scale) / 2 - minY * scale;
+            
+            function toScreen(x, y) {
+                return {
+                    x: x * scale + offsetX,
+                    y: canvas.height - (y * scale + offsetY)
+                };
+            }
+            
+            // Draw Path Shadow/Glow
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(56, 189, 248, 0.2)';
+            ctx.lineWidth = 8 * window.devicePixelRatio;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            let start = toScreen(trajectory[0].x, trajectory[0].y);
+            ctx.moveTo(start.x, start.y);
+            for (let i = 1; i < trajectory.length; i++) {
+                const p = toScreen(trajectory[i].x, trajectory[i].y);
+                ctx.lineTo(p.x, p.y);
+            }
+            ctx.stroke();
+
+            // Draw Main Path
+            ctx.beginPath();
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 3 * window.devicePixelRatio;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.moveTo(start.x, start.y);
+            for (let i = 1; i < trajectory.length; i++) {
+                const p = toScreen(trajectory[i].x, trajectory[i].y);
+                ctx.lineTo(p.x, p.y);
+            }
+            ctx.stroke();
+            
+            // Draw Robot and Waypoints
+            trajectory.forEach((p, idx) => {
+                const isWaypoint = idx % 10 === 0 || idx === trajectory.length - 1;
+                if (isWaypoint) {
+                    const s = toScreen(p.x, p.y);
+                    
+                    // Waypoint marker
+                    ctx.fillStyle = idx === 0 ? '#22c55e' : (idx === trajectory.length - 1 ? '#ef4444' : '#f472b6');
+                    ctx.shadowBlur = 10;
+                    ctx.shadowColor = ctx.fillStyle;
+                    ctx.beginPath();
+                    ctx.arc(s.x, s.y, 6 * window.devicePixelRatio, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    
+                    // Heading indicator
+                    ctx.beginPath();
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2 * window.devicePixelRatio;
+                    ctx.moveTo(s.x, s.y);
+                    ctx.lineTo(s.x + Math.cos(-p.heading) * 20 * window.devicePixelRatio, s.y + Math.sin(-p.heading) * 20 * window.devicePixelRatio);
+                    ctx.stroke();
+                }
+            });
+
+            // Draw Current Robot Pose (last sample)
+            const lastP = trajectory[trajectory.length - 1];
+            const lastS = toScreen(lastP.x, lastP.y);
+            drawRobot(lastS.x, lastS.y, lastP.heading);
+        }
+
+        function drawGrid() {
+            const step = 50 * window.devicePixelRatio;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+            ctx.lineWidth = 1;
+            
+            for (let x = 0; x < canvas.width; x += step) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += step) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+        }
+
+        function drawRobot(x, y, heading) {
+            const size = 30 * window.devicePixelRatio;
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(-heading);
+            
+            // Robot body
+            ctx.fillStyle = 'rgba(56, 189, 248, 0.2)';
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 2 * window.devicePixelRatio;
+            ctx.beginPath();
+            ctx.roundRect(-size/2, -size/2, size, size, 4 * window.devicePixelRatio);
+            ctx.fill();
+            ctx.stroke();
+            
+            // Front indicator
+            ctx.fillStyle = '#38bdf8';
+            ctx.beginPath();
+            ctx.moveTo(size/2, 0);
+            ctx.lineTo(size/2 - 8, -6);
+            ctx.lineTo(size/2 - 8, 6);
+            ctx.closePath();
+            ctx.fill();
+            
+            ctx.restore();
+        }
+
+        document.getElementById('clearBtn').onclick = () => {
+            lastTrajectory = [];
+            draw([]);
+            log('View cleared', 'info');
+        };
+
+        document.getElementById('reconnectBtn').onclick = () => {
+            connect();
+        };
+
+        // Start connection
+        connect();
+    </script>
+</body>
+</html>

@@ -13,16 +13,50 @@ import casadi as ca
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from robot_model import RobotConfig, DifferentialDriveModel
 from path_planning import ReedsSheppPath, linear_interpolation_waypoints
+from live_visualizer import get_visualizer
 import sys
+import time
+
+
+class OptimizationStats:
+    """Container for detailed optimization telemetry."""
+    def __init__(self):
+        self.total_time = 0.0
+        self.phase_times = {
+            "bootstrap": 0.0,
+            "global_solve": 0.0,
+            "critic": 0.0,
+            "refinement": 0.0,
+            "polish": 0.0
+        }
+        self.bad_segments_found = 0
+        self.refinements_attempted = 0
+        self.refinements_solved = 0
+        self.heuristic_wins = []  # List of dicts with window, heuristic, improvement
+        self.initial_cost = 0.0
+        self.final_cost = 0.0
+
+    def to_dict(self):
+        return {
+            "total_time": self.total_time,
+            "phase_times": self.phase_times,
+            "bad_segments_found": self.bad_segments_found,
+            "refinements_attempted": self.refinements_attempted,
+            "refinements_solved": self.refinements_solved,
+            "heuristic_wins": self.heuristic_wins,
+            "initial_cost": self.initial_cost,
+            "final_cost": self.final_cost,
+            "improvement_pct": (1 - self.final_cost / self.initial_cost) * 100 if self.initial_cost > 0 else 0
+        }
 
 
 # File constants for thresholds and parameters
-TORTUOSITY_THRESHOLD = 1.5
-YAW_BUFFER_RAD = 0.5
-VELOCITY_CHATTERING_THRESHOLD = 3
-JERK_COST_THRESHOLD = 10.0  # Research-grounded threshold for smoothness
-CURVATURE_COST_THRESHOLD = 5.0  # Research-grounded threshold for turn sharpness
-CENTRIPETAL_COST_THRESHOLD = 1.0  # Research-grounded threshold for friction limit approach
+TORTUOSITY_THRESHOLD = 1.2  # Tightened for better loop detection
+YAW_BUFFER_RAD = 0.3  # Tightened
+VELOCITY_CHATTERING_THRESHOLD = 2
+JERK_COST_THRESHOLD = 5.0  # Tightened
+CURVATURE_COST_THRESHOLD = 2.0  # Tightened
+CENTRIPETAL_COST_THRESHOLD = 0.8  # Tightened
 
 STOMP_NOISE_POS_STD = 0.05
 STOMP_NOISE_HEADING_STD = 0.1
@@ -84,17 +118,57 @@ class PathBootstrapper:
         
         return np.array(guess)
     
-    def _generate_segment_waypoints(self, start: Tuple[float, float, Optional[float]], goal: Tuple[float, float, Optional[float]], num_points: int) -> List[Tuple[float, float, Optional[float]]]:
+    def _generate_segment_waypoints(self, start: Tuple[float, float, Optional[float]], goal: Tuple[float, float, Optional[float]], num_points: int) -> List[Tuple[float, float, float]]:
         """Generate waypoints for a segment using Reeds-Shepp or fallback."""
         # Try Reeds-Shepp if both headings are known
         if start[2] is not None and goal[2] is not None:
             rs_path = self.rs_path.plan(start, goal, step_size=self.resolution)
-            if rs_path is not None and len(rs_path) > 0:
-                # Resample to exact number of points
-                return linear_interpolation_waypoints(start, goal, num_points)
+            if rs_path is not None and len(rs_path) > 2:
+                # Resample rs_path to exact num_points
+                return self._resample_path(rs_path, num_points)
         
         # Fallback to linear interpolation
         return linear_interpolation_waypoints(start, goal, num_points)
+
+    def _resample_path(self, path: List[Tuple[float, float, float]], num_points: int) -> List[Tuple[float, float, float]]:
+        """Resample a path (list of x, y, theta) to num_points."""
+        if len(path) < 2:
+            return path
+        
+        # Calculate cumulative distances
+        dists = [0.0]
+        for i in range(len(path) - 1):
+            dx = path[i+1][0] - path[i][0]
+            dy = path[i+1][1] - path[i][1]
+            # Include theta in distance to handle point turns better? 
+            # For now just x, y distance
+            dists.append(dists[-1] + np.sqrt(dx**2 + dy**2))
+        
+        total_dist = dists[-1]
+        resampled = []
+        
+        # If total_dist is very small (pure point turn), resample by index
+        if total_dist < 1e-6:
+            for i in range(num_points):
+                idx = int(i / (num_points - 1) * (len(path) - 1))
+                resampled.append(path[idx])
+            return resampled
+
+        for i in range(num_points):
+            target_d = (i / (num_points - 1)) * total_dist
+            # Find segment
+            for j in range(len(dists) - 1):
+                if dists[j] <= target_d <= dists[j+1]:
+                    frac = (target_d - dists[j]) / (dists[j+1] - dists[j]) if dists[j+1] > dists[j] else 0.0
+                    x = path[j][0] + frac * (path[j+1][0] - path[j][0])
+                    y = path[j][1] + frac * (path[j+1][1] - path[j][1])
+                    # Heading interpolation with angle wrapping
+                    dtheta = (path[j+1][2] - path[j][2] + np.pi) % (2 * np.pi) - np.pi
+                    theta = path[j][2] + frac * dtheta
+                    resampled.append((x, y, theta))
+                    break
+        
+        return resampled
     
     def _interpolate_heading(self, p1: Tuple[float, float, Optional[float]], p2: Tuple[float, float, Optional[float]], frac: float) -> Optional[float]:
         """Interpolate heading between two poses."""
@@ -183,7 +257,8 @@ class TrajectoryCritic:
         """Compute excess yaw rate beyond expected turn."""
         total_yaw_change = 0.0
         for i in range(len(samples) - 1):
-            total_yaw_change += abs(samples[i]['omega'] * 0.1)  # Approximate dt
+            dt = samples[i+1]['t'] - samples[i]['t']
+            total_yaw_change += abs(samples[i]['omega'] * dt)
         
         expected_yaw = abs(
             (samples[-1]['heading'] - samples[0]['heading'] + np.pi) % (2 * np.pi) - np.pi
@@ -222,15 +297,18 @@ class TrajectoryCritic:
         
         jerk_cost = 0.0
         for k in range(len(trajectory) - 2):
+            dt_k = trajectory[k+1]['t'] - trajectory[k]['t']
+            dt_k1 = trajectory[k+2]['t'] - trajectory[k+1]['t']
+            
             # Left wheel jerk
-            al_k = (trajectory[k+1]['vl'] - trajectory[k]['vl']) / 0.1  # Approximate dt
-            al_k1 = (trajectory[k+2]['vl'] - trajectory[k+1]['vl']) / 0.1
-            jerk_cost += (al_k1 - al_k)**2
+            al_k = (trajectory[k+1]['vl'] - trajectory[k]['vl']) / max(dt_k, 1e-3)
+            al_k1 = (trajectory[k+2]['vl'] - trajectory[k+1]['vl']) / max(dt_k1, 1e-3)
+            jerk_cost += ((al_k1 - al_k) / max(dt_k1, 1e-3))**2
             
             # Right wheel jerk
-            ar_k = (trajectory[k+1]['vr'] - trajectory[k]['vr']) / 0.1
-            ar_k1 = (trajectory[k+2]['vr'] - trajectory[k+1]['vr']) / 0.1
-            jerk_cost += (ar_k1 - ar_k)**2
+            ar_k = (trajectory[k+1]['vr'] - trajectory[k]['vr']) / max(dt_k, 1e-3)
+            ar_k1 = (trajectory[k+2]['vr'] - trajectory[k+1]['vr']) / max(dt_k1, 1e-3)
+            jerk_cost += ((ar_k1 - ar_k) / max(dt_k1, 1e-3))**2
         
         return jerk_cost
     
@@ -300,7 +378,7 @@ class LocalSegmentOptimizer:
         self.config = config
         self.model = DifferentialDriveModel(config)
 
-    def solve_window(self, start_state: Tuple[float, float, float, float, float], end_state: Tuple[float, float, float, float, float], num_samples: int, initial_guess: Optional[np.ndarray] = None, apply_headroom: bool = True) -> Tuple[bool, float, Optional[np.ndarray]]:
+    def solve_window(self, start_state: Tuple[float, float, float, float, float], end_state: Tuple[float, float, float, float, float], num_samples: int, initial_guess: Optional[np.ndarray] = None, apply_headroom: bool = True, direction_constraint: str = 'none') -> Tuple[bool, float, Optional[np.ndarray]]:
         """
         Solve trajectory for a local window with pinned boundary states.
 
@@ -310,6 +388,7 @@ class LocalSegmentOptimizer:
             num_samples: Number of samples in the window
             initial_guess: Optional initial guess array
             apply_headroom: Whether to apply safety margins
+            direction_constraint: 'none', 'forward', or 'reverse'
 
         Returns:
             Tuple of (success, cost, trajectory_array)
@@ -341,10 +420,19 @@ class LocalSegmentOptimizer:
         
         v_max = self.config.max_linear_speed(apply_headroom)
         v_bound = 0.99 * v_max
-        opti.subject_to(vl >= -v_bound)
-        opti.subject_to(vl <= v_bound)
-        opti.subject_to(vr >= -v_bound)
-        opti.subject_to(vr <= v_bound)
+        
+        vl_min, vl_max = -v_bound, v_bound
+        vr_min, vr_max = -v_bound, v_bound
+        
+        if direction_constraint == 'forward':
+            vl_min, vr_min = 0.0, 0.0
+        elif direction_constraint == 'reverse':
+            vl_max, vr_max = 0.0, 0.0
+            
+        opti.subject_to(vl >= vl_min)
+        opti.subject_to(vl <= vl_max)
+        opti.subject_to(vr >= vr_min)
+        opti.subject_to(vr <= vr_max)
         
         # Dynamics constraints
         for k in range(N - 1):
@@ -400,10 +488,15 @@ class LocalSegmentOptimizer:
         # Solver setup (fast settings for local optimization)
         p_opts = {"expand": True}
         s_opts = {
-            "max_iter": 500,
+            "max_iter": 2000,
             "print_level": 0,
             "tol": 1e-2,
             "constr_viol_tol": 1e-2,
+            "acceptable_tol": 5e-2,
+            "acceptable_constr_viol_tol": 5e-2,
+            "acceptable_iter": 5,
+            "hessian_approximation": "limited-memory",
+            "sb": "yes",
         }
         opti.solver("ipopt", p_opts, s_opts)
         
@@ -464,7 +557,7 @@ class MultiVerseRefiner:
         self.point_turn_bias = teb_cfg.get("point_turn_bias", TEB_POINT_TURN_BIAS)
         self.wide_sweep_bias = teb_cfg.get("wide_sweep_bias", TEB_WIDE_SWEEP_BIAS)
     
-    def refine_segment(self, start_state: Tuple[float, float, float, float, float], end_state: Tuple[float, float, float, float, float], num_samples: int, base_guess: np.ndarray, capture_iterations: bool = False) -> np.ndarray:
+    def refine_segment(self, start_state: Tuple[float, float, float, float, float], end_state: Tuple[float, float, float, float, float], num_samples: int, base_guess: np.ndarray, capture_iterations: bool = False, live_viz: bool = False, override_parallel: Optional[bool] = None) -> np.ndarray:
         """
         Refine a segment using parallel TEB/STOMP exploration.
 
@@ -474,10 +567,13 @@ class MultiVerseRefiner:
             num_samples: Number of samples in the segment
             base_guess: Baseline initial guess array
             capture_iterations: If True, captures heuristic results for convergence visualization
+            live_viz: If True, streams updates to the visualizer
+            override_parallel: If provided, overrides self.enable_parallel
 
         Returns:
-            Best trajectory array from all heuristics
+            Tuple of (Best trajectory array, name of best heuristic)
         """
+        enable_parallel = self.enable_parallel if override_parallel is None else override_parallel
         # Clear previous refinement history
         self.refinement_history = []
         
@@ -488,97 +584,198 @@ class MultiVerseRefiner:
         all_guesses = teb_guesses + stomp_guesses
         total_guesses = len(all_guesses)
         
-        # TODO: Re-implement parallel execution using multiprocessing with proper CasADi serialization
-        # Previous parallel implementation was removed due to CasADi pickling issues.
-        # Future implementation should use shared memory or alternative parallelization strategy.
+        # Filter out infeasible direction constraints
+        feasible_guesses = []
+        for guess, direction_constraint, name in all_guesses:
+            if direction_constraint == 'forward' and (start_state[3] < -0.001 or start_state[4] < -0.001 or end_state[3] < -0.001 or end_state[4] < -0.001):
+                continue
+            if direction_constraint == 'reverse' and (start_state[3] > 0.001 or start_state[4] > 0.001 or end_state[3] > 0.001 or end_state[4] > 0.001):
+                continue
+            feasible_guesses.append((guess, direction_constraint, name))
         
-        # Sequential evaluation
+        total_feasible = len(feasible_guesses)
+        
         best_cost = float('inf')
         best_result = None
-        for i, guess in enumerate(all_guesses):
-            # Progress indicator
-            if self.verbose:
-                progress = (i + 1) / total_guesses * 100
-                sys.stdout.write(f"\r  Refining: {i+1}/{total_guesses} ({progress:.0f}%) - Best cost: {best_cost:.4f}s")
-                sys.stdout.flush()
+        best_name = "None"
+        viz = get_visualizer() if live_viz else None
+        
+        if enable_parallel and total_feasible > 1:
+            # Parallel heuristic evaluation using threads
+            # CasADi releases the GIL during C-level solves, so threads give real parallelism
+            from concurrent.futures import ThreadPoolExecutor, as_completed
             
-            success, cost, result = self.local_solver.solve_window(
-                start_state, end_state, num_samples, guess
-            )
+            def _solve_one(args):
+                guess, direction_constraint, name = args
+                solver = LocalSegmentOptimizer(self.config)
+                success, cost, result = solver.solve_window(
+                    start_state, end_state, num_samples, guess, direction_constraint=direction_constraint
+                )
+                return success, cost, result, name
             
-            # Capture heuristic result for convergence visualization
-            if capture_iterations and success:
-                heuristic_type = 'TEB' if i < len(teb_guesses) else 'STOMP'
-                heuristic_idx = i if i < len(teb_guesses) else i - len(teb_guesses)
-                N = num_samples
-                states = result[1:].reshape((N, 5))
-                self.refinement_history.append({
-                    'iteration': i,
-                    'cost': cost,
-                    'trajectory': states.copy(),
-                    'dt': float(result[0]),
-                    'heuristic_type': heuristic_type,
-                    'heuristic_idx': heuristic_idx
-                })
-            
-            if success and cost < best_cost:
-                best_cost = cost
-                best_result = result
+            num_threads = min(self.num_workers, total_feasible)
+            with ThreadPoolExecutor(max_workers=num_threads) as executor:
+                futures = {executor.submit(_solve_one, g): i for i, g in enumerate(feasible_guesses)}
+                done_count = 0
+                for future in as_completed(futures):
+                    done_count += 1
+                    success, cost, result, name = future.result()
+                    
+                    if self.verbose:
+                        sys.stdout.write(f"\r  Refining: {done_count}/{total_feasible} - Best: {best_cost:.4f}s [{best_name}]")
+                        sys.stdout.flush()
+                    
+                    if success and cost < best_cost:
+                        best_cost = cost
+                        best_result = result
+                        best_name = name
+                    
+                    if live_viz and success:
+                        N = num_samples
+                        X_curr = result[1:].reshape((N, 5))
+                        traj_data = [{"x": float(X_curr[k, 0]), "y": float(X_curr[k, 1]), "heading": float(X_curr[k, 2])} for k in range(N)]
+                        viz.send_state(done_count, traj_data, phase=f"refinement_{name}")
+                    
+                    if capture_iterations and success:
+                        N = num_samples
+                        states = result[1:].reshape((N, 5))
+                        self.refinement_history.append({
+                            'iteration': futures[future],
+                            'cost': cost,
+                            'trajectory': states.copy(),
+                            'dt': float(result[0]),
+                            'heuristic_type': name,
+                            'heuristic_idx': futures[future]
+                        })
+        else:
+            # Sequential fallback
+            for i, (guess, direction_constraint, name) in enumerate(feasible_guesses):
+                if self.verbose:
+                    progress = (i + 1) / total_feasible * 100
+                    sys.stdout.write(f"\r  Refining: {i+1}/{total_feasible} ({progress:.0f}%) - Best: {best_cost:.4f}s [{name}]")
+                    sys.stdout.flush()
+                
+                success, cost, result = self.local_solver.solve_window(
+                    start_state, end_state, num_samples, guess, direction_constraint=direction_constraint
+                )
+                
+                if success and cost < best_cost:
+                    best_cost = cost
+                    best_result = result
+                    best_name = name
         
         if self.verbose:
-            sys.stdout.write(f"\r  Refining: {total_guesses}/{total_guesses} (100%) - Best cost: {best_cost:.4f}s\n")
+            sys.stdout.write(f"\r  Refining: {total_feasible}/{total_feasible} (100%) - Best cost: {best_cost:.4f}s\n")
             sys.stdout.flush()
         
-        return best_result if best_result is not None else base_guess
+        return best_result if best_result is not None else base_guess, best_name if best_result is not None else "None"
     
-    def _generate_teb_heuristics(self, start_state: Tuple[float, float, float, float, float], end_state: Tuple[float, float, float, float, float], num_samples: int, base_guess: np.ndarray) -> List[np.ndarray]:
-        """Generate TEB topology-based initial guesses."""
+    def _generate_teb_heuristics(self, start_state: Tuple[float, float, float, float, float], end_state: Tuple[float, float, float, float, float], num_samples: int, base_guess: np.ndarray) -> List[Tuple[np.ndarray, str, str]]:
+        """Generate TEB topology-based initial guesses with strict bounds."""
         guesses = []
         N = num_samples
         
-        # Forward bias: set positive velocities
+        # 1. Base Guess
+        guesses.append((base_guess.copy(), 'none', 'TEB_Base'))
+        
+        # 2. Strict Forward Bound
         forward_guess = base_guess.copy()
         for i in range(N):
             idx = 1 + i * 5
-            # Set positive velocities
-            forward_guess[idx + 3] = 0.1  # vl
-            forward_guess[idx + 4] = 0.1  # vr
-        guesses.append(forward_guess)
+            forward_guess[idx + 3] = abs(forward_guess[idx + 3]) + 0.1  # vl
+            forward_guess[idx + 4] = abs(forward_guess[idx + 4]) + 0.1  # vr
+        guesses.append((forward_guess, 'forward', 'Bounded_Forward'))
         
-        # Reverse bias: set negative velocities
+        # 3. Strict Reverse Bound
         reverse_guess = base_guess.copy()
         for i in range(N):
             idx = 1 + i * 5
-            # Set negative velocities
-            reverse_guess[idx + 3] = -0.1  # vl
-            reverse_guess[idx + 4] = -0.1  # vr
-        guesses.append(reverse_guess)
+            reverse_guess[idx + 3] = -abs(reverse_guess[idx + 3]) - 0.1  # vl
+            reverse_guess[idx + 4] = -abs(reverse_guess[idx + 4]) - 0.1  # vr
+        guesses.append((reverse_guess, 'reverse', 'Bounded_Reverse'))
         
-        # Point-turn bias: force vl = -vr near middle
-        point_turn_guess = base_guess.copy()
-        mid = N // 2
-        # Set point-turn condition at middle
-        point_turn_guess[1 + mid * 5 + 3] = 0.1
-        point_turn_guess[1 + mid * 5 + 4] = -0.1
-        guesses.append(point_turn_guess)
+        # Get robot limits for heuristic velocities
+        v_limit = self.config.v_max_rad_s * self.config.wheel_radius * 0.7
+        spin_v = v_limit * 0.5
         
-        # Wide sweep: add lateral offset
+        # 4. Forward Point-Turn Override (3-phase: Turn-Drive-Turn)
+        pt_guess = base_guess.copy()
+        dx = end_state[0] - start_state[0]
+        dy = end_state[1] - start_state[1]
+        target_angle = np.arctan2(dy, dx)
+        
+        # Divide into 3 phases: turn to target, drive, turn to end heading
+        phase_n = N // 3
+        for i in range(N):
+            idx = 1 + i * 5
+            if i < phase_n:
+                # Phase 1: Point turn to target_angle
+                frac = i / phase_n
+                theta_val = start_state[2] + frac * (target_angle - start_state[2])
+                pt_guess[idx] = start_state[0]
+                pt_guess[idx+1] = start_state[1]
+                pt_guess[idx+2] = theta_val
+                pt_guess[idx+3], pt_guess[idx+4] = -spin_v, spin_v
+            elif i < 2 * phase_n:
+                # Phase 2: Drive to end position
+                frac = (i - phase_n) / phase_n
+                pt_guess[idx] = start_state[0] + frac * dx
+                pt_guess[idx+1] = start_state[1] + frac * dy
+                pt_guess[idx+2] = target_angle
+                pt_guess[idx+3], pt_guess[idx+4] = v_limit, v_limit
+            else:
+                # Phase 3: Point turn to end heading
+                frac = (i - 2 * phase_n) / (N - 1 - 2 * phase_n) if N - 1 > 2 * phase_n else 1.0
+                theta_val = target_angle + frac * (end_state[2] - target_angle)
+                pt_guess[idx] = end_state[0]
+                pt_guess[idx+1] = end_state[1]
+                pt_guess[idx+2] = theta_val
+                pt_guess[idx+3], pt_guess[idx+4] = -spin_v, spin_v
+        guesses.append((pt_guess, 'none', 'Point_Turn_Forward'))
+
+        # 5. Reverse Point-Turn Override (3-phase: Turn-Back-Turn)
+        ptr_guess = base_guess.copy()
+        target_angle_rev = target_angle + np.pi
+        for i in range(N):
+            idx = 1 + i * 5
+            if i < phase_n:
+                frac = i / phase_n
+                theta_val = start_state[2] + frac * (target_angle_rev - start_state[2])
+                ptr_guess[idx] = start_state[0]
+                ptr_guess[idx+1] = start_state[1]
+                ptr_guess[idx+2] = theta_val
+                ptr_guess[idx+3], ptr_guess[idx+4] = -spin_v, spin_v
+            elif i < 2 * phase_n:
+                frac = (i - phase_n) / phase_n
+                ptr_guess[idx] = start_state[0] + frac * dx
+                ptr_guess[idx+1] = start_state[1] + frac * dy
+                ptr_guess[idx+2] = target_angle_rev
+                ptr_guess[idx+3], ptr_guess[idx+4] = -v_limit, -v_limit
+            else:
+                frac = (i - 2 * phase_n) / (N - 1 - 2 * phase_n) if N - 1 > 2 * phase_n else 1.0
+                theta_val = target_angle_rev + frac * (end_state[2] - target_angle_rev)
+                ptr_guess[idx] = end_state[0]
+                ptr_guess[idx+1] = end_state[1]
+                ptr_guess[idx+2] = theta_val
+                ptr_guess[idx+3], ptr_guess[idx+4] = -spin_v, spin_v
+        guesses.append((ptr_guess, 'none', 'Point_Turn_Reverse'))
+        
+        # 5. Wide sweep: add lateral offset
         wide_sweep_guess = base_guess.copy()
         for i in range(N):
             idx = 1 + i * 5
-            # Add sinusoidal lateral offset
             offset = 0.1 * np.sin(np.pi * i / N)
             wide_sweep_guess[idx + 1] += offset
-        guesses.append(wide_sweep_guess)
+        guesses.append((wide_sweep_guess, 'none', 'Wide_Sweep'))
         
         return guesses
     
-    def _generate_stomp_heuristics(self, base_guess: np.ndarray, num_samples: int) -> List[np.ndarray]:
+    def _generate_stomp_heuristics(self, base_guess: np.ndarray, num_samples: int) -> List[Tuple[np.ndarray, str, str]]:
         """Generate STOMP stochastic perturbation guesses."""
         guesses = []
         N = num_samples
         
-        for _ in range(self.stomp_variants):
+        for v in range(self.stomp_variants):
             noisy_guess = base_guess.copy()
             
             # Add Gaussian noise to positions and headings
@@ -588,7 +785,18 @@ class MultiVerseRefiner:
                 noisy_guess[idx + 1] += np.random.normal(0, self.stomp_pos_std)  # y
                 noisy_guess[idx + 2] += np.random.normal(0, self.stomp_heading_std)  # theta
             
-            guesses.append(noisy_guess)
+            guesses.append((noisy_guess, 'none', f'STOMP_Noise_{v}'))
+            
+        # Alternate Approach (180 deg flip of unconstrained target)
+        # Note: If the target heading was actually constrained, the solver will still
+        # enforce it, but the guess will encourage a loop.
+        flip_guess = base_guess.copy()
+        for i in range(N // 2, N):
+            idx = 1 + i * 5
+            flip_guess[idx + 2] += np.pi
+            flip_guess[idx + 3] *= -1
+            flip_guess[idx + 4] *= -1
+        guesses.append((flip_guess, 'none', 'STOMP_180_Flip'))
         
         return guesses
     
@@ -611,9 +819,11 @@ class MasterTrajectoryOptimizer:
         self.critic = TrajectoryCritic(config)
         self.refiner = MultiVerseRefiner(config, enable_parallel, num_workers, verbose)
         self.iteration_history: List[Dict[str, Any]] = []  # Store convergence data across phases
+        self.stats = OptimizationStats()
+
     
     def solve(self, waypoints: List[Tuple[float, float, Optional[float]]], num_samples_per_segment: int = 10, accuracy_weight: float = 0.0,
-              stop_waypoint_indices: Optional[List[int]] = None, waypoint_events: Optional[Dict[int, str]] = None, apply_headroom: bool = True, verbose: bool = True, capture_iterations: bool = False) -> List[Dict[str, Any]]:
+              stop_waypoint_indices: Optional[List[int]] = None, waypoint_events: Optional[Dict[int, str]] = None, apply_headroom: bool = True, verbose: bool = True, capture_iterations: bool = False, live_viz: bool = False) -> List[Dict[str, Any]]:
         """
         Solve trajectory using Multi-Verse refinement pipeline.
 
@@ -628,21 +838,13 @@ class MasterTrajectoryOptimizer:
             capture_iterations: If True, captures intermediate states for convergence visualization
 
         Returns:
-            List of trajectory sample dictionaries
+            Tuple of (samples, stats_dict)
         """
         import time
         
-        # Clear previous iteration history
-        self.iteration_history = []
-        
-        # TODO: Collect comprehensive benchmarking data:
-        # - Total solve time
-        # - Per-phase timing (bootstrap, global solve, critic, refinement, polish)
-        # - Number of problematic segments found
-        # - Number of refinement heuristics attempted
-        # - Success rate of refinements
-        # - Quality metrics before/after refinement
-        
+        # Reset stats
+        self.stats = OptimizationStats()
+
         total_start_time = time.time()
         num_segments = len(waypoints) - 1
         N = num_segments * num_samples_per_segment + 1
@@ -658,7 +860,8 @@ class MasterTrajectoryOptimizer:
             print("Phase 1: Bootstrapping with Reeds-Shepp paths...")
         guess = self.bootstrapper.generate_baseline(waypoints, num_samples_per_segment)
         phase1_time = time.time() - phase1_start
-        # TODO: Log phase 1 timing
+        self.stats.phase_times["bootstrap"] = phase1_time
+
         
         # Capture bootstrap phase
         if capture_iterations:
@@ -680,9 +883,16 @@ class MasterTrajectoryOptimizer:
         global_traj = self._global_solve(waypoints, num_samples_per_segment, guess, 
                                         accuracy_weight, stop_waypoint_indices, 
                                         waypoint_events, apply_headroom, 
-                                        fast_mode=True, capture_iterations=capture_iterations)
+                                        fast_mode=True, capture_iterations=capture_iterations, live_viz=live_viz)
         phase2_time = time.time() - phase2_start
-        # TODO: Log phase 2 timing and initial trajectory quality
+        self.stats.phase_times["global_solve"] = phase2_time
+        
+        # Calculate initial cost
+        if global_traj:
+            N_global = len(global_traj)
+            dt_global = global_traj[1]['t'] - global_traj[0]['t'] if N_global > 1 else 0.1
+            self.stats.initial_cost = dt_global * (N_global - 1)
+
         
         # Capture global solve phase
         if capture_iterations:
@@ -704,82 +914,204 @@ class MasterTrajectoryOptimizer:
             print("Phase 3: Evaluating trajectory quality...")
         bad_windows = self.critic.evaluate(global_traj, num_samples_per_segment)
         phase3_time = time.time() - phase3_start
+        self.stats.phase_times["critic"] = phase3_time
+        self.stats.bad_segments_found = len(bad_windows)
+        
         if verbose:
             print(f"Found {len(bad_windows)} problematic segments")
-        # TODO: Log phase 3 timing and quality metrics
+
         
         # Phase 4: Refine bad segments
         phase4_start = time.time()
         refinement_count = 0
         refinement_success_count = 0
+        heuristic_improvement_count = 0
+        heuristic_win_log = []  # Track which heuristics beat the original
+        
         if len(bad_windows) > 0:
             if verbose:
-                print("Phase 4: Refining problematic segments...")
-            for i, (window_start, window_end) in enumerate(bad_windows):
-                # Progress indicator for multiple windows
-                if verbose and len(bad_windows) > 1:
-                    progress = (i + 1) / len(bad_windows) * 100
-                    sys.stdout.write(f"\r  Window {i+1}/{len(bad_windows)} ({progress:.0f}%)")
-                    sys.stdout.flush()
+                print(f"Phase 4: Refining {len(bad_windows)} problematic segments...")
+            
+            # Group windows into disjoint batches to allow parallel refinement across windows
+            # Two windows overlap if they share any segments.
+            # Window (i, i+2) covers segments i and i+1.
+            def windows_overlap(w1, w2):
+                s1, e1 = w1[0], w1[1]
+                s2, e2 = w2[0], w2[1]
+                # Segments for w1: [s1, e1-1]
+                # Segments for w2: [s2, e2-1]
+                return not (e1 - 1 < s2 or e2 - 1 < s1)
+
+            batches = []
+            for w in bad_windows:
+                placed = False
+                for batch in batches:
+                    if not any(windows_overlap(w, bw) for bw in batch):
+                        batch.append(w)
+                        placed = True
+                        break
+                if not placed:
+                    batches.append([w])
+            
+            if self.verbose:
+                print(f"  Split into {len(batches)} parallel batches")
+
+            for bi, batch in enumerate(batches):
+                if verbose:
+                    print(f"  Batch {bi+1}/{len(batches)} ({len(batch)} windows)")
                 
-                # Extract window data
-                start_idx = window_start * num_samples_per_segment
-                end_idx = min(window_end * num_samples_per_segment, len(global_traj) - 1)
-                
-                start_state = (
-                    global_traj[start_idx]['x'],
-                    global_traj[start_idx]['y'],
-                    global_traj[start_idx]['heading'],
-                    global_traj[start_idx]['vl'],
-                    global_traj[start_idx]['vr']
-                )
-                
-                end_state = (
-                    global_traj[end_idx]['x'],
-                    global_traj[end_idx]['y'],
-                    global_traj[end_idx]['heading'],
-                    global_traj[end_idx]['vl'],
-                    global_traj[end_idx]['vr']
-                )
-                
-                num_window_samples = end_idx - start_idx + 1
-                
-                # Build base guess for window
-                base_guess = np.zeros(1 + num_window_samples * 5)
-                base_guess[0] = 0.1
-                for i in range(num_window_samples):
-                    sample = global_traj[start_idx + i]
-                    base_guess[1 + i * 5] = sample['x']
-                    base_guess[1 + i * 5 + 1] = sample['y']
-                    base_guess[1 + i * 5 + 2] = sample['heading']
-                    base_guess[1 + i * 5 + 3] = sample['vl']
-                    base_guess[1 + i * 5 + 4] = sample['vr']
-                
-                # Refine segment
-                refinement_count += 1
-                refined = self.refiner.refine_segment(start_state, end_state, 
-                                                     num_window_samples, base_guess)
-                
-                # Stitch back into global trajectory
-                if refined is not None:
-                    refinement_success_count += 1
-                    dt_val = refined[0]
-                    states = refined[1:].reshape((num_window_samples, 5))
-                    for i in range(num_window_samples):
-                        idx = start_idx + i
-                        global_traj[idx]['x'] = float(states[i, 0])
-                        global_traj[idx]['y'] = float(states[i, 1])
-                        global_traj[idx]['heading'] = float(states[i, 2])
-                        global_traj[idx]['vl'] = float(states[i, 3])
-                        global_traj[idx]['vr'] = float(states[i, 4])
-                        global_traj[idx]['omega'] = float((states[i, 4] - states[i, 3]) / self.config.track_width)
+                if self.enable_parallel and len(batch) > 1:
+                    from concurrent.futures import ThreadPoolExecutor, as_completed
+                    
+                    def _refine_window_task(w_info):
+                        try:
+                            window_start, window_end = w_info
+                            # Extract window data
+                            start_idx = window_start * num_samples_per_segment
+                            end_idx = min(window_end * num_samples_per_segment, len(global_traj) - 1)
+                            
+                            start_state = (
+                                global_traj[start_idx]['x'],
+                                global_traj[start_idx]['y'],
+                                global_traj[start_idx]['heading'],
+                                global_traj[start_idx]['vl'],
+                                global_traj[start_idx]['vr']
+                            )
+                            
+                            end_state = (
+                                global_traj[end_idx]['x'],
+                                global_traj[end_idx]['y'],
+                                global_traj[end_idx]['heading'],
+                                global_traj[end_idx]['vl'],
+                                global_traj[end_idx]['vr']
+                            )
+                            
+                            num_window_samples = end_idx - start_idx + 1
+                            original_dt = (global_traj[end_idx]['t'] - global_traj[start_idx]['t']) / max(num_window_samples - 1, 1)
+                            original_cost = original_dt * (num_window_samples - 1)
+                            
+                            base_guess = np.zeros(1 + num_window_samples * 5)
+                            base_guess[0] = original_dt if original_dt > 0.001 else 0.1
+                            for j in range(num_window_samples):
+                                sample = global_traj[start_idx + j]
+                                base_guess[1 + j * 5] = sample['x']
+                                base_guess[1 + j * 5 + 1] = sample['y']
+                                base_guess[1 + j * 5 + 2] = sample['heading']
+                                base_guess[1 + j * 5 + 3] = sample['vl']
+                                base_guess[1 + j * 5 + 4] = sample['vr']
+                                
+                            refined, name = self.refiner.refine_segment(
+                                start_state, end_state, num_window_samples, base_guess, 
+                                live_viz=live_viz, override_parallel=False)
+                            
+                            return (w_info, refined, name, original_cost, start_idx, end_idx)
+                        except Exception as e:
+                            import traceback
+                            print(f"\nError in window task {w_info}: {e}")
+                            traceback.print_exc()
+                            return (w_info, None, "Error", 0, 0, 0)
+
+                    with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+                        futures = [executor.submit(_refine_window_task, w) for w in batch]
+                        for future in as_completed(futures):
+                            result_data = future.result()
+                            if result_data[2] == "Error":
+                                continue
+                            w_info, refined, best_heuristic_name, original_cost, start_idx, end_idx = result_data
+                            window_start, window_end = w_info
+                            num_window_samples = end_idx - start_idx + 1
+                            
+                            refinement_count += 1
+                            if refined is not None and best_heuristic_name != "None":
+                                refined_cost = refined[0] * (num_window_samples - 1)
+                                refinement_success_count += 1
+                                
+                                if refined_cost < original_cost:
+                                    heuristic_improvement_count += 1
+                                    improvement_pct = (1 - refined_cost / original_cost) * 100 if original_cost > 0 else 0
+                                    heuristic_win_log.append({
+                                        'window': f"W{window_start}-W{window_end}",
+                                        'heuristic': best_heuristic_name,
+                                        'original_cost': original_cost,
+                                        'refined_cost': refined_cost,
+                                        'improvement_pct': improvement_pct
+                                    })
+                                
+                                dt_val = refined[0]
+                                states = refined[1:].reshape((num_window_samples, 5))
+                                for j in range(num_window_samples):
+                                    idx = start_idx + j
+                                    global_traj[idx]['x'] = float(states[j, 0])
+                                    global_traj[idx]['y'] = float(states[j, 1])
+                                    global_traj[idx]['heading'] = float(states[j, 2])
+                                    global_traj[idx]['vl'] = float(states[j, 3])
+                                    global_traj[idx]['vr'] = float(states[j, 4])
+                                    global_traj[idx]['omega'] = float((states[j, 4] - states[j, 3]) / self.config.track_width)
+                else:
+                    # Sequential processing for this batch (or if parallel disabled)
+                    for wi, (window_start, window_end) in enumerate(batch):
+                        # ... extract window data ...
+                        start_idx = window_start * num_samples_per_segment
+                        end_idx = min(window_end * num_samples_per_segment, len(global_traj) - 1)
+                        
+                        start_state = (
+                            global_traj[start_idx]['x'], global_traj[start_idx]['y'], global_traj[start_idx]['heading'],
+                            global_traj[start_idx]['vl'], global_traj[start_idx]['vr']
+                        )
+                        end_state = (
+                            global_traj[end_idx]['x'], global_traj[end_idx]['y'], global_traj[end_idx]['heading'],
+                            global_traj[end_idx]['vl'], global_traj[end_idx]['vr']
+                        )
+                        
+                        num_window_samples = end_idx - start_idx + 1
+                        original_dt = (global_traj[end_idx]['t'] - global_traj[start_idx]['t']) / max(num_window_samples - 1, 1)
+                        original_cost = original_dt * (num_window_samples - 1)
+                        
+                        base_guess = np.zeros(1 + num_window_samples * 5)
+                        base_guess[0] = original_dt if original_dt > 0.001 else 0.1
+                        for j in range(num_window_samples):
+                            sample = global_traj[start_idx + j]
+                            base_guess[1 + j * 5] = sample['x']
+                            base_guess[1 + j * 5 + 1] = sample['y']
+                            base_guess[1 + j * 5 + 2] = sample['heading']
+                            base_guess[1 + j * 5 + 3] = sample['vl']
+                            base_guess[1 + j * 5 + 4] = sample['vr']
+                        
+                        refinement_count += 1
+                        refined, best_heuristic_name = self.refiner.refine_segment(
+                            start_state, end_state, num_window_samples, base_guess, live_viz=live_viz)
+                        
+                        if refined is not None and best_heuristic_name != "None":
+                            refined_cost = refined[0] * (num_window_samples - 1)
+                            refinement_success_count += 1
+                            if refined_cost < original_cost:
+                                heuristic_improvement_count += 1
+                                improvement_pct = (1 - refined_cost / original_cost) * 100 if original_cost > 0 else 0
+                                heuristic_win_log.append({
+                                    'window': f"W{window_start}-W{window_end}",
+                                    'heuristic': best_heuristic_name,
+                                    'original_cost': original_cost,
+                                    'refined_cost': refined_cost,
+                                    'improvement_pct': improvement_pct
+                                })
+                            
+                            dt_val = refined[0]
+                            states = refined[1:].reshape((num_window_samples, 5))
+                            for j in range(num_window_samples):
+                                idx = start_idx + j
+                                global_traj[idx]['x'] = float(states[j, 0])
+                                global_traj[idx]['y'] = float(states[j, 1])
+                                global_traj[idx]['heading'] = float(states[j, 2])
+                                global_traj[idx]['vl'] = float(states[j, 3])
+                                global_traj[idx]['vr'] = float(states[j, 4])
+                                global_traj[idx]['omega'] = float((states[j, 4] - states[j, 3]) / self.config.track_width)
+
             
             if verbose and len(bad_windows) > 1:
                 sys.stdout.write("\n")
                 sys.stdout.flush()
         
         phase4_time = time.time() - phase4_start
-        # TODO: Log phase 4 timing, refinement count, success rate
         
         # Phase 5: Final polish
         phase5_start = time.time()
@@ -789,33 +1121,54 @@ class MasterTrajectoryOptimizer:
                                        accuracy_weight, stop_waypoint_indices,
                                        waypoint_events, apply_headroom,
                                        fast_mode=False, initial_samples=global_traj,
-                                       capture_iterations=capture_iterations)
+                                       capture_iterations=capture_iterations, live_viz=live_viz)
         phase5_time = time.time() - phase5_start
-        # TODO: Log phase 5 timing and final trajectory quality
-        
-        # Capture final polish phase
-        if capture_iterations:
-            N = len(final_traj)
-            dt = final_traj[1]['t'] - final_traj[0]['t'] if N > 1 else 0.1
-            final_states = np.array([[s['x'], s['y'], s['heading'], s['vl'], s['vr']] for s in final_traj])
-            final_cost = dt * (N - 1)
-            self.iteration_history.append({
-                'iteration': len(self.iteration_history),
-                'cost': final_cost,
-                'trajectory': final_states,
-                'dt': dt,
-                'phase': 'final_polish'
-            })
+        self.stats.phase_times["polish"] = phase5_time
         
         total_time = time.time() - total_start_time
-        # TODO: Log total time and summary statistics
-        # Store: total_time, phase_times, refinement_stats, quality_metrics
+        self.stats.total_time = total_time
         
-        return final_traj
+        # Final cost
+        if final_traj:
+            N_final = len(final_traj)
+            dt_final = final_traj[1]['t'] - final_traj[0]['t'] if N_final > 1 else 0.1
+            self.stats.final_cost = dt_final * (N_final - 1)
+
+        # Update stats counts
+        self.stats.refinements_attempted = refinement_count
+        self.stats.refinements_solved = refinement_success_count
+        self.stats.heuristic_wins = heuristic_win_log
+        
+        # ── Optimization Summary ──────────────────────────────────────────────
+
+        if verbose:
+            print(f"\n{'='*60}")
+            print(f"  OPTIMIZATION SUMMARY")
+            print(f"{'='*60}")
+            print(f"  Total time:          {total_time:.2f}s")
+            print(f"  Phase 1 (Bootstrap): {phase1_time:.2f}s")
+            print(f"  Phase 2 (Global):    {phase2_time:.2f}s")
+            print(f"  Phase 3 (Critic):    {phase3_time:.2f}s")
+            print(f"  Phase 4 (Refine):    {phase4_time:.2f}s")
+            print(f"  Phase 5 (Polish):    {phase5_time:.2f}s")
+            print(f"  Bad segments found:  {len(bad_windows)}")
+            print(f"  Refinements run:     {refinement_count}")
+            print(f"  Refinements solved:  {refinement_success_count}")
+            print(f"  Heuristic wins:      {heuristic_improvement_count}")
+            
+            if heuristic_win_log:
+                print(f"\n  {'Window':<12} {'Heuristic':<22} {'Orig (s)':<10} {'New (s)':<10} {'Improvement'}")
+                print(f"  {'-'*12} {'-'*22} {'-'*10} {'-'*10} {'-'*12}")
+                for win in heuristic_win_log:
+                    print(f"  {win['window']:<12} {win['heuristic']:<22} {win['original_cost']:<10.4f} {win['refined_cost']:<10.4f} {win['improvement_pct']:.1f}%")
+            
+            print(f"{'='*60}\n")
+        
+        return final_traj, self.stats.to_dict()
     
     def _global_solve(self, waypoints, num_samples_per_segment, initial_guess,
                      accuracy_weight, stop_waypoint_indices, waypoint_events,
-                     apply_headroom, fast_mode=False, initial_samples=None, capture_iterations=False):
+                     apply_headroom, fast_mode=False, initial_samples=None, capture_iterations=False, live_viz=False):
         """Global trajectory optimization using CasADi."""
         from optimizer import TrajectoryOptimizer
         
@@ -839,6 +1192,7 @@ class MasterTrajectoryOptimizer:
             # This would require modifying the optimizer class
             pass
         
-        return optimizer.solve(waypoints, num_samples_per_segment, accuracy_weight,
+        samples, _stats = optimizer.solve(waypoints, num_samples_per_segment, accuracy_weight,
                               stop_waypoint_indices, waypoint_events, apply_headroom, 
-                              self.verbose, capture_iterations=capture_iterations)
+                              self.verbose, capture_iterations=capture_iterations, live_viz=live_viz)
+        return samples

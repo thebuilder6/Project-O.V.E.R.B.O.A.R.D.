@@ -2,10 +2,14 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
 
-def plot_trajectory(samples, waypoints=None, title="Robot Trajectory"):
+def plot_trajectory(samples, waypoints=None, title="Robot Trajectory", show=True, metrics=None, audit=None, errors=None):
     """
     samples:   list of trajectory sample dicts (from optimizer output)
     waypoints: optional list of (x, y, heading_or_None) tuples to overlay
+    show:      if True, calls plt.show()
+    metrics:   optional dict of trajectory metrics
+    audit:     optional dict of constraint audit results
+    errors:    optional dict of forward integration errors
     """
     t  = [s['t'] for s in samples]
     x  = [s['x'] for s in samples]
@@ -16,10 +20,10 @@ def plot_trajectory(samples, waypoints=None, title="Robot Trajectory"):
     fl = [s['fl'] for s in samples]
     fr = [s['fr'] for s in samples]
 
-    fig, axs = plt.subplots(2, 2, figsize=(13, 10))
+    fig, axs = plt.subplots(2, 2, figsize=(15, 10))
     fig.suptitle(title, fontsize=14, fontweight='bold')
 
-    # ── 1. Top-Down Path ──────────────────────────────────────────────────────
+    # -- 1. Top-Down Path ------------------------------------------------------
     ax = axs[0, 0]
 
     # Colour path by speed so fast/slow sections are obvious
@@ -45,7 +49,7 @@ def plot_trajectory(samples, waypoints=None, title="Robot Trajectory"):
                     xytext=(x[i], y[i]),
                     arrowprops=dict(arrowstyle='->', color='steelblue', lw=1.5))
 
-    # ── Waypoint overlays ─────────────────────────────────────────────────────
+    # -- Waypoint overlays -----------------------------------------------------
     if waypoints:
         arrow_len = 0.12   # metres
         for idx, wp in enumerate(waypoints):
@@ -82,7 +86,7 @@ def plot_trajectory(samples, waypoints=None, title="Robot Trajectory"):
     ax.set_aspect('equal')
     ax.grid(True, linestyle='--', alpha=0.5)
 
-    # ── 2. Velocity Profile ───────────────────────────────────────────────────
+    # -- 2. Velocity Profile ---------------------------------------------------
     axs[0, 1].plot(t, vl, color='tomato',      label='Left wheel')
     axs[0, 1].plot(t, vr, color='mediumseagreen', label='Right wheel')
     axs[0, 1].plot(t, v_lin, 'k--', linewidth=1.5, label='Linear')
@@ -103,7 +107,7 @@ def plot_trajectory(samples, waypoints=None, title="Robot Trajectory"):
     axs[0, 1].legend(fontsize=8)
     axs[0, 1].grid(True, linestyle='--', alpha=0.5)
 
-    # ── 3. Wheel Forces ───────────────────────────────────────────────────────
+    # -- 3. Wheel Forces -------------------------------------------------------
     axs[1, 0].plot(t, fl, color='tomato',       label='Left force')
     axs[1, 0].plot(t, fr, color='mediumseagreen', label='Right force')
     axs[1, 0].axhline(0, color='black', linewidth=0.8)
@@ -113,12 +117,11 @@ def plot_trajectory(samples, waypoints=None, title="Robot Trajectory"):
     axs[1, 0].legend(fontsize=8)
     axs[1, 0].grid(True, linestyle='--', alpha=0.5)
 
-    # ── 4. Heading over time ──────────────────────────────────────────────────
+    # -- 4. Heading over time --------------------------------------------------
     axs[1, 1].plot(t, h, color='steelblue')
     if waypoints:
         for idx, wp in enumerate(waypoints):
             if len(wp) > 2 and wp[2] is not None:
-                wp_xs2 = wp[0]
                 dists  = [(x[i]-wp[0])**2 + (y[i]-wp[1])**2 for i in range(len(x))]
                 ni     = int(np.argmin(dists))
                 axs[1, 1].axvline(t[ni], color='darkorange', linestyle=':', alpha=0.7)
@@ -131,9 +134,41 @@ def plot_trajectory(samples, waypoints=None, title="Robot Trajectory"):
     axs[1, 1].set_title('Heading Profile')
     axs[1, 1].grid(True, linestyle='--', alpha=0.5)
 
-    plt.tight_layout(rect=[0, 0.02, 1, 0.95])
-    plt.show()
+    # -- Metrics Display -------------------------------------------------------
+    if metrics or audit or errors:
+        plt.tight_layout(rect=[0, 0.03, 0.82, 0.95])
+        
+        info_text = ""
+        
+        if metrics:
+            info_text += "-- METRICS --\n"
+            info_text += f"Time:      {metrics['total_time_s']:>7.3f} s\n"
+            info_text += f"Length:    {metrics['path_length_m']:>7.3f} m\n"
+            info_text += f"Max Speed: {metrics['max_linear_speed_m_s']:>7.3f} m/s\n"
+            info_text += f"Max Accel: {metrics['max_accel_m_s2']:>7.3f} m/s^2\n"
+            info_text += f"Max Jerk:  {metrics['max_jerk_m_s3']:>7.3f} m/s^3\n\n"
+            
+        if audit:
+            info_text += "-- AUDIT --\n"
+            info_text += f"Violations: {audit['num_violating_samples']:>7}\n"
+            info_text += f"Slip Pts:   {audit['num_slip_points']:>7}\n"
+            info_text += f"Max Force:  {max(audit['left_motor_force'], audit['right_motor_force']):>7.3f} N\n\n"
+            
+        if errors:
+            info_text += "-- RK4 ERRORS --\n"
+            info_text += f"Max Pos:   {errors['max_pos_error_m']:>7.4f} m\n"
+            info_text += f"RMS Pos:   {errors['rms_pos_error_m']:>7.4f} m\n"
+            info_text += f"Max Head:  {errors['max_heading_error_rad']:>7.4f} rad\n"
 
+        fig.text(0.83, 0.5, info_text, 
+                 fontsize=11, family='monospace', verticalalignment='center',
+                 bbox=dict(boxstyle='round,pad=0.5', facecolor='whitesmoke', alpha=0.8, edgecolor='silver'))
+    else:
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+
+    if show:
+        plt.show()
+    return fig
 
 if __name__ == "__main__":
     import sys, json
