@@ -760,7 +760,7 @@ class MultiVerseRefiner:
                 ptr_guess[idx+3], ptr_guess[idx+4] = -spin_v, spin_v
         guesses.append((ptr_guess, 'none', 'Point_Turn_Reverse'))
         
-        # 5. Wide sweep: add lateral offset
+        # 6. Wide sweep: add lateral offset
         wide_sweep_guess = base_guess.copy()
         for i in range(N):
             idx = 1 + i * 5
@@ -768,12 +768,43 @@ class MultiVerseRefiner:
             wide_sweep_guess[idx + 1] += offset
         guesses.append((wide_sweep_guess, 'none', 'Wide_Sweep'))
         
+        # 7. Heading diversity heuristics - vary heading at midpoint
+        for heading_offset in [np.pi/4, -np.pi/4, np.pi/2, -np.pi/2]:
+            heading_diverse_guess = base_guess.copy()
+            mid_idx = N // 2
+            for i in range(N):
+                idx = 1 + i * 5
+                # Apply heading offset with smooth transition
+                if i < mid_idx:
+                    frac = i / mid_idx
+                    heading_diverse_guess[idx + 2] += heading_offset * frac
+                else:
+                    frac = (i - mid_idx) / (N - mid_idx)
+                    heading_diverse_guess[idx + 2] += heading_offset * (1 - frac)
+            guesses.append((heading_diverse_guess, 'none', f'Heading_Div_{heading_offset:.2f}'))
+        
+        # 8. Perpendicular approach heuristic
+        perp_guess = base_guess.copy()
+        perp_angle = target_angle + np.pi/2
+        for i in range(N):
+            idx = 1 + i * 5
+            frac = i / (N - 1)
+            # Blend from start heading to perpendicular, then to end heading
+            if i < N // 2:
+                perp_guess[idx + 2] = start_state[2] + frac * 2 * (perp_angle - start_state[2])
+            else:
+                perp_guess[idx + 2] = perp_angle + (frac - 0.5) * 2 * (end_state[2] - perp_angle)
+        guesses.append((perp_guess, 'none', 'Perpendicular_Approach'))
+        
         return guesses
     
     def _generate_stomp_heuristics(self, base_guess: np.ndarray, num_samples: int) -> List[Tuple[np.ndarray, str, str]]:
         """Generate STOMP stochastic perturbation guesses."""
         guesses = []
         N = num_samples
+        
+        # Increase heading noise for better diversity at unconstrained waypoints
+        increased_heading_std = self.stomp_heading_std * 3.0  # Triple the heading noise
         
         for v in range(self.stomp_variants):
             noisy_guess = base_guess.copy()
@@ -783,7 +814,7 @@ class MultiVerseRefiner:
                 idx = 1 + i * 5
                 noisy_guess[idx] += np.random.normal(0, self.stomp_pos_std)  # x
                 noisy_guess[idx + 1] += np.random.normal(0, self.stomp_pos_std)  # y
-                noisy_guess[idx + 2] += np.random.normal(0, self.stomp_heading_std)  # theta
+                noisy_guess[idx + 2] += np.random.normal(0, increased_heading_std)  # theta (increased noise)
             
             guesses.append((noisy_guess, 'none', f'STOMP_Noise_{v}'))
             
@@ -797,6 +828,20 @@ class MultiVerseRefiner:
             flip_guess[idx + 3] *= -1
             flip_guess[idx + 4] *= -1
         guesses.append((flip_guess, 'none', 'STOMP_180_Flip'))
+        
+        # Add 90-degree flip heuristic
+        flip_90_guess = base_guess.copy()
+        for i in range(N // 3, 2 * N // 3):
+            idx = 1 + i * 5
+            flip_90_guess[idx + 2] += np.pi / 2
+        guesses.append((flip_90_guess, 'none', 'STOMP_90_Flip'))
+        
+        # Add -90-degree flip heuristic
+        flip_neg_90_guess = base_guess.copy()
+        for i in range(N // 3, 2 * N // 3):
+            idx = 1 + i * 5
+            flip_neg_90_guess[idx + 2] -= np.pi / 2
+        guesses.append((flip_neg_90_guess, 'none', 'STOMP_-90_Flip'))
         
         return guesses
     
