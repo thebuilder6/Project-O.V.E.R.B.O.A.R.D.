@@ -106,8 +106,8 @@ class TestCriticMetrics(unittest.TestCase):
                 'y': 0.0,
                 'heading': heading,
                 'vl': 0.1,
-                'vr': 0.1,
-                'omega': 0.0
+                'vr': 0.2,
+                'omega': (0.2 - 0.1) / self.config.track_width
             })
         
         yaw_excess = self.critic._compute_yaw_excess(trajectory)

@@ -112,6 +112,7 @@ class TestRefinementAccuracy(unittest.TestCase):
             # Create a zigzag pattern with high tortuosity
             y = 0.5 if i % 2 == 0 else -0.5
             problematic_traj.append({
+                't': i * 0.1,
                 'x': i * 0.1,
                 'y': y,  # Zigzag pattern
                 'heading': 0.0,
@@ -274,6 +275,7 @@ class TestRefinementAccuracy(unittest.TestCase):
             vl = 0.1 * ((-1) ** i)  # Alternating acceleration
             vr = 0.1 * ((-1) ** i)
             high_jerk_traj.append({
+                't': i * 0.1,
                 'x': i * 0.1,
                 'y': 0.0,
                 'heading': 0.0,
@@ -288,6 +290,7 @@ class TestRefinementAccuracy(unittest.TestCase):
             vl = 0.1  # Constant velocity
             vr = 0.1
             smooth_traj.append({
+                't': i * 0.1,
                 'x': i * 0.1,
                 'y': 0.0,
                 'heading': 0.0,
@@ -405,6 +408,7 @@ class TestRefinementAccuracy(unittest.TestCase):
             vl = 0.1 + 0.05 * ((-1) ** i)  # Small oscillations
             vr = 0.1 + 0.05 * ((-1) ** i)
             research_violating_traj.append({
+                't': i * 0.1,
                 'x': i * 0.1,
                 'y': 0.0,
                 'heading': 0.0,

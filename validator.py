@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple, Any
+from typing import List, Dict, Tuple, Any, Optional
 import json
 import numpy as np
 from robot_model import RobotConfig, DifferentialDriveModel
@@ -177,18 +177,13 @@ def audit_constraints(samples: List[Dict[str, Any]], robot_cfg: RobotConfig, app
     return audit
 
 
-def compute_metrics(samples: List[Dict[str, Any]]) -> Dict[str, float]:
-    """Basic trajectory metrics."""
+def compute_metrics(samples: List[Dict[str, Any]], robot_cfg: Optional[RobotConfig] = None) -> Dict[str, Any]:
+    """
+    Comprehensive trajectory metrics for quality analysis and benchmarking.
+    """
     if not samples:
         return {}
 
-    # TODO: Collect additional detailed metrics for whitepaper:
-    # - Average speed, acceleration, jerk (not just max)
-    # - Speed/acceleration distributions (percentiles)
-    # - Force utilization statistics (how close to motor/traction limits)
-    # - Time spent in different regimes (accelerating, cruising, decelerating)
-    # - Heading change statistics
-    
     t = [s["t"] for s in samples]
     vl = [s["vl"] for s in samples]
     vr = [s["vr"] for s in samples]
@@ -212,19 +207,53 @@ def compute_metrics(samples: List[Dict[str, Any]]) -> Dict[str, float]:
         for i in range(len(x) - 1)
     )
 
+    # Calculate additional metrics
+    avg_linear_speed = np.mean([abs(v) for v in v_lin])
+
+    # Force utilization
+    fl_util = []
+    fr_util = []
+    if robot_cfg:
+        for s in samples:
+            max_fl = robot_cfg.get_max_force_at_velocity(s["vl"])
+            max_fr = robot_cfg.get_max_force_at_velocity(s["vr"])
+            if max_fl > 1e-6:
+                fl_util.append(abs(s["fl"]) / max_fl)
+            if max_fr > 1e-6:
+                fr_util.append(abs(s["fr"]) / max_fr)
+
+    # Tortuosity
+    straight_distance = np.sqrt((x[-1] - x[0])**2 + (y[-1] - y[0])**2)
+    tortuosity = path_len / straight_distance if straight_distance > 1e-6 else 1.0
+
+    # Chattering
+    vl_crossings = 0
+    vr_crossings = 0
+    for i in range(1, len(samples)):
+        if samples[i]['vl'] * samples[i-1]['vl'] < 0:
+            vl_crossings += 1
+        if samples[i]['vr'] * samples[i-1]['vr'] < 0:
+            vr_crossings += 1
+
     return {
         "total_time_s": float(t[-1]),
         "path_length_m": float(path_len),
         "max_linear_speed_m_s": float(max(abs(v) for v in v_lin)),
+        "avg_linear_speed_m_s": float(avg_linear_speed),
         "max_wheel_speed_m_s": float(max(max(abs(v) for v in vl), max(abs(v) for v in vr))),
         "max_accel_m_s2": float(max(max(abs(a) for a in al), max(abs(a) for a in ar))),
         "max_jerk_m_s3": float(max(abs(j) for j in jerks)) if jerks else 0.0,
+        "avg_jerk_m_s3": float(np.mean(np.abs(jerks))) if jerks else 0.0,
+        "tortuosity": float(tortuosity),
+        "velocity_chattering": int(vl_crossings + vr_crossings),
+        "avg_force_utilization": float(np.mean(fl_util + fr_util)) if fl_util + fr_util else 0.0,
+        "max_force_utilization": float(np.max(fl_util + fr_util)) if fl_util + fr_util else 0.0,
     }
 
 
-def validate_trajectory(traj_file: str, config_file: str, apply_headroom: bool = True) -> Tuple[Dict[str, float], Dict[str, Any], Dict[str, float]]:
+def validate_trajectory(traj_file: str, config_file: str, apply_headroom: bool = True) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, float]]:
     """
-    CLI entry point: load a .traj file and a .chor config, run validation,
+    CLI entry point: load a .traj file and a .json config, run validation,
     and print a human-readable report.
 
     Args:
@@ -232,11 +261,8 @@ def validate_trajectory(traj_file: str, config_file: str, apply_headroom: bool =
         config_file: Path to config file
         apply_headroom: If True, applies safety margin for real-world tracking
     """
-    # TODO: Collect comprehensive validation data for benchmarking:
-    # - Store metrics, audit, errors in structured format
-    # - Record validation time
-    # - Track constraint violation patterns (which constraints, where, when)
-    # - Store for whitepaper empirical data collection
+    import time
+    start_time = time.time()
     
     with open(traj_file, "r") as f:
         traj_data = json.load(f)
@@ -252,11 +278,13 @@ def validate_trajectory(traj_file: str, config_file: str, apply_headroom: bool =
         print(f"Safety margins: torque_headroom={robot_cfg.torque_headroom:.2f}, speed_headroom={robot_cfg.speed_headroom:.2f}")
 
     # Metrics
-    metrics = compute_metrics(samples)
+    metrics = compute_metrics(samples, robot_cfg)
     print("\n-- Metrics --")
     for k, v in metrics.items():
-        print(f"  {k}: {v:.4f}")
-    # TODO: Store metrics for benchmarking
+        if isinstance(v, float):
+            print(f"  {k}: {v:.4f}")
+        else:
+            print(f"  {k}: {v}")
 
     # Constraint audit
     audit = audit_constraints(samples, robot_cfg, apply_headroom)
@@ -283,14 +311,12 @@ def validate_trajectory(traj_file: str, config_file: str, apply_headroom: bool =
                 print(f"        Right wheel slip: {sp['right_wheel_slip_N']:.6f} N (normal: {sp['right_normal_force_N']:.2f} N)")
         if audit['num_slip_points'] > 5:
             print(f"    ... and {audit['num_slip_points'] - 5} more")
-    # TODO: Store audit data for analysis of constraint violation patterns
 
     # Forward integration
     integrated, errors = forward_integrate(samples, robot_cfg, fine_dt=0.001)
     print("\n-- Forward Integration (1 ms RK4) --")
     for k, v in errors.items():
         print(f"  {k}: {v:.6f}")
-    # TODO: Store integrated trajectory and errors for tracking analysis
 
     # Pass / fail summary
     ok = (
@@ -299,8 +325,19 @@ def validate_trajectory(traj_file: str, config_file: str, apply_headroom: bool =
         and audit["num_violating_samples"] == 0
         and audit["num_slip_points"] == 0
     )
+
+    validation_time = time.time() - start_time
+
+    summary = {
+        "passed": ok,
+        "validation_time": validation_time,
+        "metrics": metrics,
+        "audit": audit,
+        "errors": errors
+    }
+
+
     print(f"\n{'PASS' if ok else 'WARN'} — trajectory {'is' if ok else 'may not be'} safe to run.")
-    # TODO: Store pass/fail result and summary statistics
     
     return metrics, audit, errors
 
@@ -309,6 +346,6 @@ if __name__ == "__main__":
     import sys
 
     if len(sys.argv) < 3:
-        print("Usage: python validator.py <trajectory.traj> <config.chor>")
+        print("Usage: python validator.py <trajectory.traj> <config.json>")
         sys.exit(1)
     validate_trajectory(sys.argv[1], sys.argv[2])

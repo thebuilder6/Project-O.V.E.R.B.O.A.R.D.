@@ -100,13 +100,13 @@ Create a JSON file with waypoints:
 ### 3. Generate a trajectory
 
 ```bash
-python main.py -c fll_choreo.chor -w test_waypoints.json -o output.traj --plot
+python main.py -c examples/fll_choreo.json -w examples/example_straight.json -o output.traj --plot
 ```
 
 ### 4. Validate and export for controller
 
 ```bash
-python main.py -c fll_choreo.chor -w test_waypoints.json -o output.traj \
+python main.py -c examples/fll_choreo.json -w examples/example_straight.json -o output.traj \
   --validate --export-format controller --controller-dt 0.02
 ```
 
@@ -115,14 +115,14 @@ This generates two files:
 - `output.traj`: Full trajectory with variable timesteps (for analysis) or generate .py python file for the robot
 - `output_controller.json`: Fixed 20ms timesteps (for robot controller)
 
-### 5. Live Visualization (Optional) (Broken)
+### 5. Live Visualization (Optional)
 
 To see the optimization progress in real-time in your browser:
 
 1. Run the optimizer with the `--live` flag:
 
    ```bash
-   python main.py -c fll_choreo.chor -w test_waypoints.json --live
+   python main.py -c examples/fll_choreo.json -w examples/example_complex_mission.json --live
    ```
 
 2. Open `viz/index.html` in any modern web browser.
@@ -134,7 +134,7 @@ To see the optimization progress in real-time in your browser:
 Usage: main.py [OPTIONS]
 
 Options:
-  -c, --config PATH              Path to the configuration file (.chor or .json). [required]
+  -c, --config PATH              Path to the configuration file (.json). [required]
   -w, --waypoints PATH           Path to waypoints JSON file. [required]
   -o, --output TEXT              Output trajectory file path. [default: output.traj]
   -n, --samples INTEGER          Samples per segment. [default: 10]
@@ -167,8 +167,6 @@ FLL_Choreo/
 ├── export.py                  # Controller-ready export with fixed timesteps
 ├── plotter.py                 # Trajectory visualization
 ├── path_planning.py           # Path planning utilities
-├── fll_choreo.chor            # Example robot configuration file
-├── example_*.json             # Example waypoint files
 ├── README.md                  # This file
 ├── docs/
 │   ├── CONFIGURATION.md       # Detailed configuration guide
@@ -176,6 +174,7 @@ FLL_Choreo/
 │   ├── API_optimizer.md       # Optimizer API documentation
 │   ├── API_robot_model.md     # Robot model API documentation
 │   └── API_validator_export.md # Validator and export API documentation
+├── examples/                  # Example configurations and waypoints
 └── pybricks_code/             # Pybricks robot controller examples
 ```
 
@@ -210,26 +209,26 @@ For complex paths, the optimizer can use **Multi-Verse refinement**:
 ### Simple straight line
 
 ```bash
-python main.py -c fll_choreo.chor -w example_straight.json -o straight.traj --plot
+python main.py -c examples/fll_choreo.json -w examples/example_straight.json -o straight.traj --plot
 ```
 
 ### Path with turns
 
 ```bash
-python main.py -c fll_choreo.chor -w example_s_curve.json -o s_curve.traj --plot
+python main.py -c examples/fll_choreo.json -w examples/example_s_curve.json -o s_curve.traj --plot
 ```
 
 ### Mission with stops and events
 
 ```bash
-python main.py -c fll_choreo.chor -w example_complete.json -o mission.traj \
+python main.py -c examples/fll_choreo.json -w examples/example_complete.json -o mission.traj \
   --validate --export-format controller --controller-dt 0.02 --plot
 ```
 
 ### Smooth trajectory for better tracking
 
 ```bash
-python main.py -c fll_choreo.chor -w waypoints.json -o smooth.traj \
+python main.py -c examples/fll_choreo.json -w examples/example_s_curve.json -o smooth.traj \
   -a 1.0 --validate --plot
 ```
 
@@ -238,7 +237,7 @@ python main.py -c fll_choreo.chor -w waypoints.json -o smooth.traj \
 For complex missions, use the full suite of Multi-Verse features:
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o mission.json \
+python main.py -c examples/fll_choreo.json -w waypoints.json -o mission.json \
   -a 1.0 --workers 8 --live --benchmark --validate --export-format controller \
   --show-convergence --convergence-animate
 ```
@@ -323,7 +322,7 @@ This shows a complex trajectory optimized with the Multi-Verse refinement pipeli
 
 ## Research & References
 
-See `trajectory_tools_research.md` for:
+See `docs/trajectory_tools_research.md` for:
 
 - Comparison with other tools (Choreo, PathPlanner, CasADi)
 - Academic papers on trajectory optimization
@@ -338,7 +337,6 @@ See `trajectory_tools_research.md` for:
 ✅ Phase 5: Event markers and stop constraints (complete)
 ⚪ Phase 6: Field geometry/obstacle constraints (optional)
 
-See `project_plan.md` for details.
 
 ## Additional Documentation
 

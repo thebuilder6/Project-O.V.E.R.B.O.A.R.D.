@@ -29,7 +29,7 @@ Generate a straight-line trajectory from (0, 0) to (1, 0):
 **Command:**
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o straight.traj --plot
+python main.py -c examples/fll_choreo.json -w waypoints.json -o straight.traj --plot
 ```
 
 **Expected output:**
@@ -57,7 +57,7 @@ Generate a trajectory with a turn:
 **Command:**
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o turn.traj --plot
+python main.py -c examples/fll_choreo.json -w waypoints.json -o turn.traj --plot
 ```
 
 **Expected output:**
@@ -85,7 +85,7 @@ Generate a path where only positions matter, not heading:
 **Command:**
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o arc.traj --plot
+python main.py -c examples/fll_choreo.json -w waypoints.json -o arc.traj --plot
 ```
 
 **Expected output:**
@@ -102,16 +102,16 @@ The repository includes several example waypoint files:
 
 ```bash
 # Straight line
-python main.py -c robot_config.json -w example_straight.json -o straight.traj --plot
+python main.py -c examples/fll_choreo.json -w examples/example_straight.json -o straight.traj --plot
 
 # S-curve path
-python main.py -c robot_config.json -w example_s_curve.json -o s_curve.traj --plot
+python main.py -c examples/fll_choreo.json -w examples/example_s_curve.json -o s_curve.traj --plot
 
 # Complete mission with stops and events
-python main.py -c robot_config.json -w example_complete.json -o complete.traj --plot
+python main.py -c examples/fll_choreo.json -w examples/example_complete.json -o complete.traj --plot
 
 # Complex mission
-python main.py -c robot_config.json -w example_complex_mission.json -o complex.traj --plot
+python main.py -c examples/fll_choreo.json -w examples/example_complex_mission.json -o complex.traj --plot
 ```
 
 ---
@@ -137,7 +137,7 @@ Generate a trajectory with stops at specific waypoints using JSON:
 **Command:**
 
 ```bash
-python main.py -c robot_config.json -w waypoints_with_stops.json -o stops.traj --plot
+python main.py -c examples/fll_choreo.json -w waypoints_with_stops.json -o stops.traj --plot
 ```
 
 **Expected output:**
@@ -157,7 +157,7 @@ python main.py -c robot_config.json -w waypoints_with_stops.json -o stops.traj -
 Alternatively, specify stops via CLI flag:
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o stops.traj \
+python main.py -c examples/fll_choreo.json -w waypoints.json -o stops.traj \
   --stop-waypoints "0,2,4" --plot
 ```
 
@@ -183,7 +183,7 @@ Generate a trajectory with mission event markers using JSON:
 **Command:**
 
 ```bash
-python main.py -c robot_config.json -w waypoints_with_events.json -o events.traj \
+python main.py -c examples/fll_choreo.json -w waypoints_with_events.json -o events.traj \
   --export-format controller \
   --controller-dt 0.02
 ```
@@ -201,7 +201,7 @@ python main.py -c robot_config.json -w waypoints_with_events.json -o events.traj
 Alternatively, specify events via CLI flag:
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o events.traj \
+python main.py -c examples/fll_choreo.json -w waypoints.json -o events.traj \
   --events "1:lower_arm,3:release" \
   --export-format controller \
   --controller-dt 0.02
@@ -218,19 +218,19 @@ Compare time-optimal vs. smooth trajectories:
 **Time-optimal (default):**
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o fast.traj -a 0.0 --validate
+python main.py -c examples/fll_choreo.json -w waypoints.json -o fast.traj -a 0.0 --validate
 ```
 
 **Balanced smoothness:**
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o smooth.traj -a 1.0 --validate
+python main.py -c examples/fll_choreo.json -w waypoints.json -o smooth.traj -a 1.0 --validate
 ```
 
 **Very smooth:**
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o very_smooth.traj -a 5.0 --validate
+python main.py -c examples/fll_choreo.json -w waypoints.json -o very_smooth.traj -a 5.0 --validate
 ```
 
 **Comparison:**
@@ -246,7 +246,7 @@ python main.py -c robot_config.json -w waypoints.json -o very_smooth.traj -a 5.0
 Generate a trajectory and export for on-robot execution:
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o traj.traj \
+python main.py -c examples/fll_choreo.json -w waypoints.json -o traj.traj \
   --validate \
   --export-format controller \
   --controller-dt 0.02
@@ -280,7 +280,7 @@ python main.py -c robot_config.json -w waypoints.json -o traj.traj \
 Export trajectory as a Python file for direct import:
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o traj.traj \
+python main.py -c examples/fll_choreo.json -w waypoints.json -o traj.traj \
   --export-format python
 ```
 
@@ -297,19 +297,19 @@ Compare different sample densities:
 **Low density (fast, less accurate):**
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o low_res.traj -n 5
+python main.py -c examples/fll_choreo.json -w waypoints.json -o low_res.traj -n 5
 ```
 
 **Medium density (default):**
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o med_res.traj -n 10
+python main.py -c examples/fll_choreo.json -w waypoints.json -o med_res.traj -n 10
 ```
 
 **High density (slower, more accurate):**
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o high_res.traj -n 20
+python main.py -c examples/fll_choreo.json -w waypoints.json -o high_res.traj -n 20
 ```
 
 **Tradeoffs:**
@@ -325,7 +325,7 @@ python main.py -c robot_config.json -w waypoints.json -o high_res.traj -n 20
 Use the advanced Multi-Verse optimizer for complex paths:
 
 ```bash
-python main.py -c robot_config.json -w complex_waypoints.json -o complex.traj \
+python main.py -c examples/fll_choreo.json -w complex_waypoints.json -o complex.traj \
   -n 15 \
   -a 1.0 \
   --validate \
@@ -340,19 +340,19 @@ The Multi-Verse optimizer:
 **Disable parallel processing:**
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o output.traj --no-parallel
+python main.py -c examples/fll_choreo.json -w waypoints.json -o output.traj --no-parallel
 ```
 
 **Use simple optimizer (legacy mode):**
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o output.traj --simple
+python main.py -c examples/fll_choreo.json -w waypoints.json -o output.traj --simple
 ```
 
 **Adjust worker count:**
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o output.traj --workers 16
+python main.py -c examples/fll_choreo.json -w waypoints.json -o output.traj --workers 16
 ```
 
 ---
@@ -376,7 +376,7 @@ Generate a trajectory for a typical FLL mission:
 **Command:**
 
 ```bash
-python main.py -c robot_config.json -w mission_waypoints.json -o mission.traj \
+python main.py -c examples/fll_choreo.json -w mission_waypoints.json -o mission.traj \
   -n 10 \
   -a 0.5 \
   --validate \
@@ -404,7 +404,7 @@ from optimizer import TrajectoryOptimizer
 import json
 
 # Load configuration
-with open('robot_config.json', 'r') as f:
+with open('examples/fll_choreo.json', 'r') as f:
     config_data = json.load(f)
 
 robot_cfg = RobotConfig(config_data)
@@ -439,7 +439,7 @@ from multiverse_optimizer import MasterTrajectoryOptimizer
 import json
 
 # Load configuration
-with open('robot_config.json', 'r') as f:
+with open('examples/fll_choreo.json', 'r') as f:
     config_data = json.load(f)
 
 robot_cfg = RobotConfig(config_data)
@@ -482,7 +482,7 @@ print(f"Number of samples: {len(samples)}")
 from validator import validate_trajectory
 
 # Run validation
-metrics, audit, errors = validate_trajectory('output.traj', 'robot_config.json')
+metrics, audit, errors = validate_trajectory('output.traj', 'examples/fll_choreo.json')
 
 print("\n=== Metrics ===")
 for k, v in metrics.items():
@@ -542,7 +542,7 @@ from validator import compute_metrics
 import json
 
 # Load config
-with open('robot_config.json', 'r') as f:
+with open('examples/fll_choreo.json', 'r') as f:
     config_data = json.load(f)
 
 robot_cfg = RobotConfig(config_data)
@@ -588,11 +588,11 @@ If optimization fails or times out:
 
 ```bash
 # First, try with fewer samples
-python main.py -c robot_config.json -w waypoints.json -o test.traj -n 5
+python main.py -c examples/fll_choreo.json -w waypoints.json -o test.traj -n 5
 
 # If that works, gradually increase
-python main.py -c robot_config.json -w waypoints.json -o test.traj -n 10
-python main.py -c robot_config.json -w waypoints.json -o test.traj -n 15
+python main.py -c examples/fll_choreo.json -w waypoints.json -o test.traj -n 10
+python main.py -c examples/fll_choreo.json -w waypoints.json -o test.traj -n 15
 ```
 
 Check for:
@@ -609,7 +609,7 @@ If validation shows constraint violations:
 
 ```bash
 # Run validation to see details
-python main.py -c robot_config.json -w waypoints.json -o output.traj --validate
+python main.py -c examples/fll_choreo.json -w waypoints.json -o output.traj --validate
 ```
 
 **Output interpretation:**
@@ -641,7 +641,7 @@ If the robot deviates significantly from the planned path:
 
 1. **Increase accuracy weight:**
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o smooth.traj -a 2.0
+python main.py -c examples/fll_choreo.json -w waypoints.json -o smooth.traj -a 2.0
 ```
 
 2. **Check configuration:**
@@ -661,7 +661,7 @@ python main.py -c robot_config.json -w waypoints.json -o smooth.traj -a 2.0
 
 4. **Increase sample density:**
 ```bash
-python main.py -c robot_config.json -w waypoints.json -o high_res.traj -n 20
+python main.py -c examples/fll_choreo.json -w waypoints.json -o high_res.traj -n 20
 ```
 
 ---
@@ -677,7 +677,7 @@ from robot_model import RobotConfig
 from multiverse_optimizer import MasterTrajectoryOptimizer
 
 # Load config once
-with open('robot_config.json', 'r') as f:
+with open('examples/fll_choreo.json', 'r') as f:
     config_data = json.load(f)
 robot_cfg = RobotConfig(config_data)
 optimizer = MasterTrajectoryOptimizer(robot_cfg, enable_parallel=True, num_workers=8)
@@ -763,7 +763,7 @@ Generate a comprehensive trajectory using all available features: stops, events,
 **Command:**
 
 ```bash
-python main.py -c robot_config.json -w complete_mission.json -o complete_mission.traj \
+python main.py -c examples/fll_choreo.json -w complete_mission.json -o examples/complete_mission.traj \
   -a 1.0 \
   -n 15 \
   --validate \
@@ -793,7 +793,7 @@ Monitor the optimization process in real-time using a web browser:
 **Command:**
 
 ```bash
-python main.py -c robot_config.json -w waypoints.json --live
+python main.py -c examples/fll_choreo.json -w waypoints.json --live
 ```
 
 **Steps:**
@@ -808,15 +808,15 @@ python main.py -c robot_config.json -w waypoints.json --live
 **Expected output:**
 
 ```
-Loading config from robot_config.json...
+Loading config from examples/fll_choreo.json...
 Loading waypoints from complete_mission.json...
 Optimizing trajectory through 10 waypoints (accuracy_weight=1.0)...
 Stop waypoints at indices: [0, 2, 6, 9]
 Optimization converged. Total time: 15.2341s
-Successfully saved trajectory to complete_mission.traj
+Successfully saved trajectory to examples/complete_mission.traj
 
-=== Validation Report: complete_mission.traj ===
-Samples: 136 | Config: robot_config.json
+=== Validation Report: examples/complete_mission.traj ===
+Samples: 136 | Config: examples/fll_choreo.json
 
 -- Metrics --
   total_time_s: 15.2341
@@ -846,7 +846,7 @@ Exported 762 controller samples at dt=0.02s to complete_mission_controller.json
 
 **Output files:**
 
-- `complete_mission.traj`: Full variable-timestep trajectory with events
+- `examples/complete_mission.traj`: Full variable-timestep trajectory with events
 - `complete_mission_controller.json`: Fixed 20ms timestep for robot controller with events
 
 **Use case:** Complete FLL mission with multiple segments, stops for precision, events for mechanism control, and validation for safety.

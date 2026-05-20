@@ -444,7 +444,7 @@ class TestValidateTrajectory:
             json.dump(traj_data, traj_file)
             traj_path = traj_file.name
         
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.chor', delete=False) as config_file:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as config_file:
             config_data = config_dict
             json.dump(config_data, config_file)
             config_path = config_file.name

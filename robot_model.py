@@ -1,5 +1,6 @@
-from typing import Dict, Tuple, Any
+from typing import Dict, Tuple, Any, Optional
 import numpy as np
+import casadi as ca
 
 
 class RobotConfig:
@@ -77,6 +78,19 @@ class RobotConfig:
             speed *= self.speed_headroom
         return speed
 
+    def get_max_force_symbolic(self, v_wheel: ca.MX, apply_headroom: bool = True) -> ca.MX:
+        """
+        CasADi symbolic version of get_max_force_at_velocity.
+        """
+        omega = (v_wheel / self.wheel_radius) * self.gearing
+        torque = self.t_max_nm * (1.0 - ca.fabs(omega) / self.v_max_rad_s)
+        # NOTE: clamping at zero means no braking force above no-load speed.
+        torque = ca.fmax(0, torque)
+        force = (torque / self.wheel_radius) * self.gearing
+        if apply_headroom:
+            force *= self.torque_headroom
+        return force
+
 
 class DifferentialDriveModel:
     """
@@ -126,6 +140,18 @@ class DifferentialDriveModel:
         fr = (f_total + (2.0 * m_total / self.cfg.track_width)) / 2.0
         fl = f_total - fr
 
+        return fl, fr
+
+    def get_dynamics_symbolic(self, vl: ca.MX, vr: ca.MX, al: ca.MX, ar: ca.MX) -> Tuple[ca.MX, ca.MX]:
+        """
+        CasADi symbolic version of get_dynamics.
+        """
+        a = (al + ar) / 2.0
+        alpha = (ar - al) / self.cfg.track_width
+        f_total = self.cfg.mass * a
+        m_total = self.cfg.inertia * alpha
+        fr = (f_total + (2.0 * m_total / self.cfg.track_width)) / 2.0
+        fl = f_total - fr
         return fl, fr
 
     def get_wheel_normal_forces(self, vl: float, vr: float, al: float, ar: float) -> Tuple[float, float]:
