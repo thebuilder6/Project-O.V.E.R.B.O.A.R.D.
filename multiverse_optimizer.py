@@ -10,7 +10,7 @@ A hybrid trajectory generation architecture combining:
 from typing import List, Dict, Tuple, Any, Optional
 import numpy as np
 import casadi as ca
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from robot_model import RobotConfig, DifferentialDriveModel
 from path_planning import ReedsSheppPath, linear_interpolation_waypoints
 from live_visualizer import get_visualizer
@@ -448,9 +448,9 @@ class LocalSegmentOptimizer:
             al = (vl[k + 1] - vl[k]) / dt
             ar = (vr[k + 1] - vr[k]) / dt
             
-            fl, fr = self._dynamics_symbolic(vl[k], vr[k], al, ar)
-            max_fl = self._max_force_symbolic(vl[k], apply_headroom)
-            max_fr = self._max_force_symbolic(vr[k], apply_headroom)
+            fl, fr = self.model.get_dynamics_symbolic(vl[k], vr[k], al, ar)
+            max_fl = self.config.get_max_force_symbolic(vl[k], apply_headroom)
+            max_fr = self.config.get_max_force_symbolic(vr[k], apply_headroom)
             
             opti.subject_to(ca.fabs(fl) <= max_fl)
             opti.subject_to(ca.fabs(fr) <= max_fr)
@@ -505,32 +505,10 @@ class LocalSegmentOptimizer:
             dt_val = float(sol.value(dt))
             X_val = np.array(sol.value(X))
             cost = dt_val * (N - 1)
-            # TODO: Collect refinement solver statistics:
-            # - Solver iterations, time, constraint violations
-            # - Track which heuristic (TEB/STOMP) produced best result
-            # - Store for analysis of refinement effectiveness
             return True, cost, np.concatenate([[dt_val], X_val.flatten()])
         except Exception:
-            # TODO: Log refinement failures for analysis
             return False, float('inf'), None
     
-    def _dynamics_symbolic(self, vl: ca.DM, vr: ca.DM, al: ca.DM, ar: ca.DM) -> Tuple[ca.DM, ca.DM]:
-        a = (al + ar) / 2.0
-        alpha = (ar - al) / self.config.track_width
-        f_total = self.config.mass * a
-        m_total = self.config.inertia * alpha
-        fr = (f_total + (2.0 * m_total / self.config.track_width)) / 2.0
-        fl = f_total - fr
-        return fl, fr
-    
-    def _max_force_symbolic(self, v_wheel: ca.DM, apply_headroom: bool = True) -> ca.DM:
-        omega = (v_wheel / self.config.wheel_radius) * self.config.gearing
-        torque = self.config.t_max_nm * (1.0 - ca.fabs(omega) / self.config.v_max_rad_s)
-        torque = ca.fmax(0, torque)
-        force = (torque / self.config.wheel_radius) * self.config.gearing
-        if apply_headroom:
-            force *= self.config.torque_headroom
-        return force
 
 
 class MultiVerseRefiner:
@@ -603,7 +581,6 @@ class MultiVerseRefiner:
         if enable_parallel and total_feasible > 1:
             # Parallel heuristic evaluation using threads
             # CasADi releases the GIL during C-level solves, so threads give real parallelism
-            from concurrent.futures import ThreadPoolExecutor, as_completed
             
             def _solve_one(args):
                 guess, direction_constraint, name = args
@@ -1006,7 +983,6 @@ class MasterTrajectoryOptimizer:
                     print(f"  Batch {bi+1}/{len(batches)} ({len(batch)} windows)")
                 
                 if self.enable_parallel and len(batch) > 1:
-                    from concurrent.futures import ThreadPoolExecutor, as_completed
                     
                     def _refine_window_task(w_info):
                         try:

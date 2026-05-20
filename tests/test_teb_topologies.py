@@ -46,7 +46,13 @@ class TestTEBTopologies(unittest.TestCase):
         
         # Generate forward bias guess
         teb_guesses = self.refiner._generate_teb_heuristics(start_state, end_state, num_samples, base_guess)
-        forward_guess = teb_guesses[0]
+        # Find Bounded_Forward guess
+        forward_guess = None
+        for g, _, name in teb_guesses:
+            if name == 'Bounded_Forward':
+                forward_guess = g
+                break
+        self.assertIsNotNone(forward_guess)
         
         # Verify forward bias guess is different from baseline
         self.assertFalse(np.array_equal(forward_guess, base_guess))
@@ -108,7 +114,7 @@ class TestTEBTopologies(unittest.TestCase):
         
         teb_guesses = self.refiner._generate_teb_heuristics(start_state, end_state, num_samples, base_guess)
         
-        for i, guess in enumerate(teb_guesses):
+        for i, (guess, _, name) in enumerate(teb_guesses):
             # Check that velocities are within reasonable bounds
             for j in range(num_samples):
                 idx = 1 + j * 5

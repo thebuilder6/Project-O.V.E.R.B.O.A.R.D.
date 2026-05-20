@@ -15,7 +15,7 @@ from live_visualizer import get_visualizer
 @click.command()
 # --- Input / Output Options ---
 @click.option('-c', '--config', required=True, type=click.Path(exists=True), 
-              help='Path to the robot configuration JSON file.')
+              help='Path to the robot configuration file (.json).')
 @click.option('-w', '--waypoints', required=True, type=click.Path(exists=True), 
               help='Path to waypoints JSON file.')
 @click.option('-o', '--output', default='output.traj', type=str, 
@@ -135,13 +135,6 @@ def main(config, waypoints, output, samples, accuracy_weight, stop_waypoints, ev
         except ValueError:
             click.echo("Invalid events format. Use 'index:event' pairs separated by commas (e.g., '2:lower_arm,5:release').")
 
-    # TODO: If benchmark flag is set, collect comprehensive data:
-    # - Measure total solve time
-    # - Collect solver statistics (iterations, constraint violations)
-    # - Store trajectory quality metrics (tortuosity, chattering, etc.)
-    # - Save to structured JSON file for whitepaper analysis
-    # - Include configuration parameters for reproducibility
-    
     # Combine JSON and CLI stop indices
     all_stop_indices = list(set(stop_indices + json_stop_indices))
     if not quiet and all_stop_indices:
@@ -156,6 +149,21 @@ def main(config, waypoints, output, samples, accuracy_weight, stop_waypoints, ev
     samples_data, stats = optimizer.solve(wps, num_samples_per_segment=samples, accuracy_weight=accuracy_weight, stop_waypoint_indices=all_stop_indices, waypoint_events=waypoint_events, verbose=not quiet, capture_iterations=capture_iterations, live_viz=live)
     
     if benchmark:
+        # Enrich stats with quality metrics and config
+        from validator import compute_metrics
+        quality_metrics = compute_metrics(samples_data, robot_cfg)
+        stats["quality_metrics"] = quality_metrics
+        stats["robot_config"] = {
+            "mass": robot_cfg.mass,
+            "inertia": robot_cfg.inertia,
+            "track_width": robot_cfg.track_width,
+            "wheel_radius": robot_cfg.wheel_radius,
+            "v_max_rad_s": robot_cfg.v_max_rad_s,
+            "t_max_nm": robot_cfg.t_max_nm,
+            "gearing": robot_cfg.gearing,
+            "cof": robot_cfg.cof
+        }
+
         stats_output = os.path.splitext(output)[0] + '_stats.json'
         with open(stats_output, 'w') as f:
             json.dump(stats, f, indent=2)
@@ -181,6 +189,18 @@ def main(config, waypoints, output, samples, accuracy_weight, stop_waypoints, ev
     v_results = (None, None, None)
     if validate:
         v_results = validate_trajectory(output, config)
+
+        if benchmark:
+            # Save validation summary in benchmark mode
+            metrics, audit, errors = v_results
+            summary = {
+                "metrics": metrics,
+                "audit": audit,
+                "errors": errors
+            }
+            summary_file = os.path.splitext(output)[0] + '_validation.json'
+            with open(summary_file, 'w') as f:
+                json.dump(summary, f, indent=2)
 
     if export_format == 'controller':
         ctrl_output = os.path.splitext(output)[0] + '_controller.json'
