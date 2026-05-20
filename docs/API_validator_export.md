@@ -54,7 +54,7 @@ import json
 # Load trajectory and config
 with open('output.traj', 'r') as f:
     traj_data = json.load(f)
-with open('fll_choreo.chor', 'r') as f:
+with open('examples/fll_choreo.json', 'r') as f:
     config_data = json.load(f)
 
 samples = traj_data['trajectory']['samples']
@@ -118,7 +118,7 @@ import json
 # Load trajectory and config
 with open('output.traj', 'r') as f:
     traj_data = json.load(f)
-with open('fll_choreo.chor', 'r') as f:
+with open('examples/fll_choreo.json', 'r') as f:
     config_data = json.load(f)
 
 samples = traj_data['trajectory']['samples']
@@ -191,7 +191,7 @@ CLI entry point for trajectory validation. Loads files, runs validation, and pri
 **Parameters:**
 
 - `traj_file` (str): Path to `.traj` file
-- `config_file` (str): Path to `.chor` config file
+- `config_file` (str): Path to `.json` config file
 - `apply_headroom` (bool): If True, applies safety margin for real-world tracking (default: True)
 
 **Returns:**
@@ -216,7 +216,7 @@ Prints a comprehensive validation report including:
 **Usage:**
 
 ```bash
-python validator.py output.traj fll_choreo.chor
+python validator.py output.traj examples/fll_choreo.json
 ```
 
 ---
@@ -411,7 +411,7 @@ write_python_file('output.traj', 'trajectory.py')
 **Or from CLI:**
 
 ```bash
-python main.py -c config.chor -w waypoints.json -o output.traj --export-format python
+python main.py -c config.json -w waypoints.json -o output.traj --export-format python
 ```
 
 **Use case:** Direct integration with Python-based robot controllers or analysis scripts, avoiding JSON parsing overhead.

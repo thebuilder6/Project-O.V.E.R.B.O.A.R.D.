@@ -110,9 +110,9 @@ class TrajectoryOptimizer:
             ar = (vr[k + 1] - vr[k]) / dt
 
             # Force calculations (evaluated at start of interval to match legacy behaviour)
-            fl, fr = self._dynamics_symbolic(vl[k], vr[k], al, ar)
-            max_fl = self._max_force_symbolic(vl[k], apply_headroom)
-            max_fr = self._max_force_symbolic(vr[k], apply_headroom)
+            fl, fr = self.model.get_dynamics_symbolic(vl[k], vr[k], al, ar)
+            max_fl = self.config.get_max_force_symbolic(vl[k], apply_headroom)
+            max_fr = self.config.get_max_force_symbolic(vr[k], apply_headroom)
 
             # Motor limits
             opti.subject_to(ca.fabs(fl) <= max_fl)
@@ -271,27 +271,6 @@ class TrajectoryOptimizer:
         
         return time_cost + accuracy_weight * smoothness_cost
 
-    def _dynamics_symbolic(self, vl: ca.DM, vr: ca.DM, al: ca.DM, ar: ca.DM) -> Tuple[ca.DM, ca.DM]:
-        """CasADi version of DifferentialDriveModel.get_dynamics."""
-        a = (al + ar) / 2.0
-        alpha = (ar - al) / self.config.track_width
-        f_total = self.config.mass * a
-        m_total = self.config.inertia * alpha
-        fr = (f_total + (2.0 * m_total / self.config.track_width)) / 2.0
-        fl = f_total - fr
-        return fl, fr
-
-    def _max_force_symbolic(self, v_wheel: ca.DM, apply_headroom: bool = True) -> ca.DM:
-        """CasADi version of RobotConfig.get_max_force_at_velocity."""
-        omega = (v_wheel / self.config.wheel_radius) * self.config.gearing
-        torque = self.config.t_max_nm * (1.0 - ca.fabs(omega) / self.config.v_max_rad_s)
-        # NOTE: clamping at zero means no braking force above no-load speed.
-        # This matches the legacy scipy implementation.
-        torque = ca.fmax(0, torque)
-        force = (torque / self.config.wheel_radius) * self.config.gearing
-        if apply_headroom:
-            force *= self.config.torque_headroom
-        return force
 
     def _build_initial_guess(self, waypoints: List[Tuple[float, float, Optional[float]]], num_samples_per_segment: int, N: int) -> np.ndarray:
         num_segments = len(waypoints) - 1
@@ -347,11 +326,6 @@ class TrajectoryOptimizer:
         states = params[1:].reshape((N, 5))
         samples = []
         
-        # TODO: Collect trajectory statistics for quality analysis:
-        # - Compute tortuosity, yaw excess, velocity chattering
-        # - Track force utilization (how close to limits)
-        # - Store per-sample data for detailed analysis
-        
         for k in range(N):
             s = states[k]
             vl, vr = s[3], s[4]
@@ -385,10 +359,5 @@ class TrajectoryOptimizer:
             if event is not None:
                 sample_dict["event"] = event
             samples.append(sample_dict)
-        
-        # TODO: Compute and return quality metrics:
-        # - Overall tortuosity, chattering, yaw excess
-        # - Force utilization statistics
-        # - Return as additional output or store in class variable
         
         return samples

@@ -767,7 +767,7 @@ Centripetal acceleration penalizes trajectories approaching friction limits, ind
 
 Segments exceeding thresholds are flagged for refinement. The research-grounded metrics provide additional sensitivity to trajectory quality issues that may not be captured by the original geometric metrics alone.
 
-### 6.6 Phase 4: Parallel Refinement
+### 7.6 Phase 4: Parallel Refinement
 
 The `MultiVerseRefiner` applies two heuristic approaches in parallel:
 
@@ -798,11 +798,11 @@ The refinement phase leverages a hybrid parallelization architecture to maximize
 
 Each heuristic is optimized independently using the `LocalSegmentOptimizer`, which solves a constrained local optimization problem with pinned boundary states. The best result (lowest cost) is selected and stitched back into the global trajectory.
 
-### 6.7 Phase 5: Final Polish
+### 7.7 Phase 5: Final Polish
 
 A final global optimization with tight tolerances using the refined trajectory as initial guess. This ensures global consistency while preserving local improvements.
 
-### 6.8 Local Segment Optimizer
+### 7.8 Local Segment Optimizer
 
 The `LocalSegmentOptimizer` solves a miniature optimization problem for a local window:
 
@@ -815,7 +815,7 @@ The `LocalSegmentOptimizer` solves a miniature optimization problem for a local 
 
 This enables rapid exploration of local trajectory variations.
 
-### 5.5 Live Visualization (live_visualizer.py)
+### 7.9 Live Visualization (live_visualizer.py)
 
 To facilitate real-time monitoring and debugging of the optimization process, the system includes a WebSocket-based live visualization engine.
 
@@ -833,7 +833,7 @@ To facilitate real-time monitoring and debugging of the optimization process, th
 
 This decoupling of solver and visualizer ensures that visualization overhead does not impact optimization performance while providing a responsive user experience.
 
-### 6.9 Convergence Visualization
+### 7.10 Convergence Visualization
 
 The system includes convergence visualization capabilities to analyze optimization progress:
 
@@ -865,9 +865,9 @@ This feature enables researchers and developers to understand optimization behav
 
 ---
 
-## 7. Results and Performance
+## 8. Results and Performance
 
-### 7.1 Benchmark Setup
+### 8.1 Benchmark Setup
 
 **Test robot configuration:**
 
@@ -888,7 +888,7 @@ This feature enables researchers and developers to understand optimization behav
 3. Complex mission (10 waypoints, multiple turns)
 4. Sharp turn (3 waypoints, 90° turn)
 
-### 7.2 Optimization Performance & Scaling
+### 8.2 Optimization Performance & Scaling
 
 Performance scales with trajectory resolution (samples per segment) and the complexity of the waypoint sequence.
 
@@ -904,7 +904,7 @@ Performance scales with trajectory resolution (samples per segment) and the comp
 - **Accuracy Tradeoff**: Increasing the smoothness penalty (`-a`) significantly increases the complexity of the Hessian calculation in Phase 2 and 5, leading to longer global solve times.
 - **Thread Utilization**: On an 8-core system, the `ThreadPoolExecutor` architecture achieves ~85-90% CPU utilization during the refinement phase without the process-spawn overhead of `ProcessPool`.
 
-### 7.3 Trajectory Quality
+### 8.3 Trajectory Quality
 
 **Metric: Path tortuosity (lower is better)**
 
@@ -930,7 +930,7 @@ Performance scales with trajectory resolution (samples per segment) and the comp
 - Tortuosity improvements are most pronounced for sharp turns
 - Simple paths see little benefit (as expected)
 
-### 7.4 Trajectory Visualizations
+### 8.4 Trajectory Visualizations
 
 The following visualizations demonstrate the optimizer's performance on various trajectory types from the randomized benchmark suite:
 
@@ -954,7 +954,7 @@ A trajectory featuring a sharp 90° turn, demonstrating the system's handling of
 
 These visualizations are generated from the benchmark suite and represent typical optimization results on FLL-scale trajectories.
 
-### 7.5 Accuracy-Speed Tradeoff
+### 8.5 Accuracy-Speed Tradeoff
 
 **Metric: Total time vs. accuracy weight**
 
@@ -972,7 +972,7 @@ These visualizations are generated from the benchmark suite and represent typica
 - Higher weights provide diminishing returns
 - Weight of 0.5-1.0 recommended for typical FLL applications
 
-### 7.5 Validation Results
+### 8.6 Validation Results
 
 **Forward integration validation (RK4, 1ms steps):**
 
@@ -999,7 +999,7 @@ The validator now includes wheel slip detection that identifies points where the
 - Wheel slip detection identifies potential issues in complex trajectories
 - Errors are within acceptable range for FLL missions (< 10mm)
 
-### 7.6 Real-World Tracking
+### 8.7 Real-World Tracking
 
 **Test setup:**
 
@@ -1023,7 +1023,7 @@ The validator now includes wheel slip detection that identifies points where the
 - Smooth trajectories (accuracy weight > 0) track better than time-optimal
 - Errors correlate with trajectory complexity (as expected)
 
-### 7.7 Comprehensive Benchmarking & Telemetry
+### 8.8 Comprehensive Benchmarking & Telemetry
 
 The system includes an `OptimizationStats` telemetry engine that captures high-resolution timing and efficacy data for every phase of the optimization.
 
@@ -1034,7 +1034,7 @@ The system includes an `OptimizationStats` telemetry engine that captures high-r
 - **Bad Segment Density**: Monitors the number of problematic regions identified by the Critic.
 - **Cost Improvement**: Measures initial vs. final trajectory time costs.
 
-### 7.8 Empirical Results (Parallelized Randomized Suite)
+### 8.9 Empirical Results (Parallelized Randomized Suite)
 
 Results from a 100-run randomized stress-test suite using the new parallel refinement architecture:
 
@@ -1062,9 +1062,9 @@ Results from a 100-run randomized stress-test suite using the new parallel refin
 
 ---
 
-## 8. Comparison with Alternatives
+## 9. Comparison with Alternatives
 
-### 8.1 Choreo
+### 9.1 Choreo
 
 **Choreo** is a popular trajectory optimization tool for FRC (FIRST Robotics Competition) robots.
 
@@ -1088,7 +1088,7 @@ Results from a 100-run randomized stress-test suite using the new parallel refin
 - This system: ~0.1-0.5 seconds for typical FLL trajectories
 - Difference due to smaller problem scale (FLL robots are smaller/slower)
 
-### 8.2 PathPlanner
+### 9.2 PathPlanner
 
 **PathPlanner** is another trajectory optimization tool for FRC.
 
@@ -1104,7 +1104,7 @@ Results from a 100-run randomized stress-test suite using the new parallel refin
 - **Output**: PathPlanner outputs continuous-time trajectories, this system outputs discrete samples
 - **Validation**: This system includes forward integration validation
 
-### 8.3 Pure Pursuit
+### 9.3 Pure Pursuit
 
 **Pure Pursuit** is a geometric path-following algorithm commonly used in FLL.
 
@@ -1125,7 +1125,7 @@ Results from a 100-run randomized stress-test suite using the new parallel refin
 - **This system**: When you need time-optimal trajectories with constraint guarantees
 - **Pure Pursuit**: When you need simple path following without optimization
 
-### 8.4 Manual Tuning
+### 9.4 Manual Tuning
 
 **Manual tuning** involves manually setting velocities and accelerations for each segment.
 
@@ -1142,21 +1142,21 @@ Results from a 100-run randomized stress-test suite using the new parallel refin
 
 ---
 
-## 9. Future Work
+## 10. Future Work
 
-### 9.1 Short-term Improvements
+### 10.1 Short-term Improvements
 
 1. **Interactive Refinement**: Enable manual segment override in the web visualizer to force specific heuristics on "stubborn" windows.
 2. **Adaptive Discretization**: Automatically increase sample density (`-n`) in high-curvature segments while keeping straight lines sparse to save computation.
 3. **Obstacle Avoidance**: Integrate static field geometry (e.g., competition field boundaries) into the NLP constraints.
 
-### 9.2 Medium-term Enhancements
+### 10.2 Medium-term Enhancements
 
 1. **Multi-Robot Coordination**: Optimize trajectories for multiple robots to avoid collisions in shared mission spaces.
 2. **Trajectory Stitching**: Support "rolling" optimization for extremely long missions (30+ waypoints) to manage memory usage.
 3. **Hardware-in-the-Loop (HIL)**: Real-time telemetry feedback to adjust robot parameters (e.g., mass, COF) during a competition run.
 
-### 9.3 Long-term Research Directions
+### 10.3 Long-term Research Directions
 
 1. **Model predictive control**: Integrate trajectory optimization with MPC for closed-loop adaptation
 2. **Reinforcement learning**: Learn trajectory policies from simulation
@@ -1166,7 +1166,7 @@ Results from a 100-run randomized stress-test suite using the new parallel refin
 
 ---
 
-## 10. Conclusion
+## 11. Conclusion
 
 This whitepaper has presented a comprehensive trajectory optimization system for FLL differential-drive robots. The system combines direct collocation with CasADi and IPOPT for efficient optimization, augmented with a novel Multi-Verse refinement pipeline that improves trajectory quality for complex paths.
 
@@ -1305,7 +1305,7 @@ batch_windows = True  # Enable non-overlapping window parallelization
 
 ```json
 {
-  "name": "example_trajectory",
+  "name": "examples/example_trajectory",
   "version": 3,
   "trajectory": {
     "config": {
@@ -1356,8 +1356,8 @@ To utilize the full power of the Multi-Verse pipeline—including multi-level pa
 
 ```powershell
 python main.py `
-  -c robot_config.json `
-  -w example_complex_mission.json `
+  -c examples/fll_choreo.json `
+  -w examples/example_complex_mission.json `
   -o complex_mission_optimized.json `
   -a 1.0 `
   --workers 8 `

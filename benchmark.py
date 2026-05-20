@@ -247,9 +247,9 @@ def main():
     """Run benchmark suite on example files."""
     # Example waypoint files to test
     waypoint_files = [
-        "example_straight.json",
-        "example_s_curve.json",
-        "example_complex_mission.json"
+        "examples/example_straight.json",
+        "examples/example_s_curve.json",
+        "examples/example_complex_mission.json"
     ]
     
     # Check if files exist
