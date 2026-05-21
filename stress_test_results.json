@@ -3,7 +3,7 @@
     "scenario": "Heading_Flip_Win",
     "accuracy_weight": 0.0,
     "simple": {
-      "solve_time": 1.0937366485595703,
+      "solve_time": 4.004320859909058,
       "cost": 4.346672268711204,
       "metrics": {
         "total_time_s": 4.346672268711204,
@@ -21,7 +21,7 @@
       }
     },
     "multiverse": {
-      "solve_time": 20.71348786354065,
+      "solve_time": 21.767245054244995,
       "cost": 4.346672268711204,
       "metrics": {
         "total_time_s": 4.346672268711204,
@@ -68,7 +68,7 @@
     "scenario": "Heading_Flip_Win",
     "accuracy_weight": 2.0,
     "simple": {
-      "solve_time": 8.29179310798645,
+      "solve_time": 8.675111293792725,
       "cost": 6.0602296176414265,
       "metrics": {
         "total_time_s": 6.0602296176414265,
@@ -86,7 +86,7 @@
       }
     },
     "multiverse": {
-      "solve_time": 150.42336678504944,
+      "solve_time": 157.58265018463135,
       "cost": 6.0602296176414265,
       "metrics": {
         "total_time_s": 6.0602296176414265,
@@ -116,15 +116,15 @@
           "window": "W2-W4",
           "heuristic": "STOMP_Noise_1",
           "original_cost": 2.46768702296998,
-          "refined_cost": 2.4590936270050605,
-          "improvement_pct": 0.3482368665446378
+          "refined_cost": 2.459099609616219,
+          "improvement_pct": 0.34799442854084317
         },
         {
           "window": "W1-W3",
-          "heuristic": "TEB_Base",
-          "original_cost": 4.872150548929323,
-          "refined_cost": 4.6926860766527,
-          "improvement_pct": 3.6834755099277583
+          "heuristic": "STOMP_-90_Flip",
+          "original_cost": 4.872972014266818,
+          "refined_cost": 4.692843002934766,
+          "improvement_pct": 3.6964918083805975
         }
       ]
     }
