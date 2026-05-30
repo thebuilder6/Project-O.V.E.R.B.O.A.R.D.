@@ -133,12 +133,15 @@ def audit_constraints(samples: List[Dict[str, Any]], robot_cfg: RobotConfig, app
     violating_indices = []
     slip_points = []  # Detailed slip information
     
+    left_normal_forces = []
+    right_normal_forces = []
+    
     for i, s in enumerate(samples):
         violations = model.check_constraints(s["vl"], s["vr"], s["al"], s["ar"], apply_headroom)
         
         # Update max violations
         for key in max_violations:
-            if violations[key] > max_violations[key]:
+            if key in violations and violations[key] > max_violations[key]:
                 max_violations[key] = violations[key]
         
         # Check for any violation
@@ -147,6 +150,9 @@ def audit_constraints(samples: List[Dict[str, Any]], robot_cfg: RobotConfig, app
         
         if has_violation:
             violating_indices.append(i)
+            
+        left_normal_forces.append(violations["left_normal_force"])
+        right_normal_forces.append(violations["right_normal_force"])
         
         if has_slip:
             slip_points.append({
@@ -169,6 +175,8 @@ def audit_constraints(samples: List[Dict[str, Any]], robot_cfg: RobotConfig, app
         "left_wheel_slip": float(max_violations["left_wheel_slip"]),
         "right_wheel_slip": float(max_violations["right_wheel_slip"]),
         "traction_total": float(max_violations["traction_violation"]),
+        "left_normal_force": float(np.mean(left_normal_forces)) if left_normal_forces else float((robot_cfg.mass * robot_cfg.g) / 2.0),
+        "right_normal_force": float(np.mean(right_normal_forces)) if right_normal_forces else float((robot_cfg.mass * robot_cfg.g) / 2.0),
         "num_violating_samples": len(violating_indices),
         "violating_sample_indices": violating_indices,
         "num_slip_points": len(slip_points),

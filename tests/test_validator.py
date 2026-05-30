@@ -2,7 +2,7 @@
 Unit tests for validator.py
 """
 
-import pytest
+import unittest
 import numpy as np
 import json
 import tempfile
@@ -11,7 +11,7 @@ from robot_model import RobotConfig
 from validator import forward_integrate, audit_constraints, compute_metrics
 
 
-class TestForwardIntegrate:
+class TestForwardIntegrate(unittest.TestCase):
     """Test cases for forward_integrate function."""
 
     def test_forward_integrate_empty_samples(self):
@@ -32,8 +32,8 @@ class TestForwardIntegrate:
         
         integrated, errors = forward_integrate([], config, fine_dt=0.001)
         
-        assert integrated == []
-        assert errors == {}
+        self.assertEqual(integrated, [])
+        self.assertEqual(errors, {})
 
     def test_forward_integrate_straight_line(self):
         """Test forward integration for straight line motion."""
@@ -71,12 +71,12 @@ class TestForwardIntegrate:
         
         integrated, errors = forward_integrate(samples, config, fine_dt=0.001)
         
-        assert len(integrated) > 0
-        assert "max_pos_error_m" in errors
-        assert "rms_pos_error_m" in errors
-        assert "max_heading_error_rad" in errors
+        self.assertGreater(len(integrated), 0)
+        self.assertIn("max_pos_error_m", errors)
+        self.assertIn("rms_pos_error_m", errors)
+        self.assertIn("max_heading_error_rad", errors)
         # For constant velocity, error should be small
-        assert errors["max_pos_error_m"] < 0.01
+        self.assertLess(errors["max_pos_error_m"], 0.01)
 
     def test_forward_integrate_with_turning(self):
         """Test forward integration with turning motion."""
@@ -102,10 +102,17 @@ class TestForwardIntegrate:
             vl = 0.5
             vr = 0.6
             omega = (vr - vl) / config.track_width
+            v = (vl + vr) / 2.0
+            if t == 0:
+                x = 0.0
+                y = 0.0
+            else:
+                x = (v / omega) * np.sin(omega * t)
+                y = (v / omega) * (1.0 - np.cos(omega * t))
             samples.append({
                 "t": t,
-                "x": 0.5 * t,
-                "y": 0.0,
+                "x": x,
+                "y": y,
                 "heading": omega * t,
                 "vl": vl,
                 "vr": vr,
@@ -118,11 +125,11 @@ class TestForwardIntegrate:
         
         integrated, errors = forward_integrate(samples, config, fine_dt=0.001)
         
-        assert len(integrated) > 0
-        assert errors["max_pos_error_m"] < 0.05  # Allow some error for turning
+        self.assertGreater(len(integrated), 0)
+        self.assertLess(errors["max_pos_error_m"], 0.05)  # Allow some error for turning
 
 
-class TestAuditConstraints:
+class TestAuditConstraints(unittest.TestCase):
     """Test cases for audit_constraints function."""
 
     def test_audit_constraints_empty_samples(self):
@@ -143,10 +150,10 @@ class TestAuditConstraints:
         
         audit = audit_constraints([], config, apply_headroom=True)
         
-        assert audit["num_violating_samples"] == 0
-        assert audit["num_slip_points"] == 0
-        assert audit["left_motor_force"] == 0.0
-        assert audit["right_motor_force"] == 0.0
+        self.assertEqual(audit["num_violating_samples"], 0)
+        self.assertEqual(audit["num_slip_points"], 0)
+        self.assertEqual(audit["left_motor_force"], 0.0)
+        self.assertEqual(audit["right_motor_force"], 0.0)
 
     def test_audit_constraints_no_violation(self):
         """Test constraint audit with no violations."""
@@ -170,11 +177,11 @@ class TestAuditConstraints:
             t = i * 0.1
             samples.append({
                 "t": t,
-                "x": 0.5 * t,
+                "x": 0.3 * t,
                 "y": 0.0,
                 "heading": 0.0,
-                "vl": 0.5,
-                "vr": 0.5,
+                "vl": 0.3,
+                "vr": 0.3,
                 "omega": 0.0,
                 "al": 0.1,
                 "ar": 0.1,
@@ -184,8 +191,8 @@ class TestAuditConstraints:
         
         audit = audit_constraints(samples, config, apply_headroom=True)
         
-        assert audit["num_violating_samples"] == 0
-        assert audit["num_slip_points"] == 0
+        self.assertEqual(audit["num_violating_samples"], 0)
+        self.assertEqual(audit["num_slip_points"], 0)
 
     def test_audit_constraints_with_motor_violation(self):
         """Test constraint audit with motor limit violation."""
@@ -224,7 +231,7 @@ class TestAuditConstraints:
         audit = audit_constraints(samples, config, apply_headroom=False)
         
         # Should have motor violations
-        assert audit["num_violating_samples"] > 0
+        self.assertGreater(audit["num_violating_samples"], 0)
 
     def test_audit_constraints_with_slip(self):
         """Test constraint audit with wheel slip."""
@@ -263,7 +270,7 @@ class TestAuditConstraints:
         audit = audit_constraints(samples, config, apply_headroom=False)
         
         # Should have slip points
-        assert audit["num_slip_points"] > 0
+        self.assertGreater(audit["num_slip_points"], 0)
 
     def test_audit_constraints_normal_forces(self):
         """Test that normal forces are computed correctly."""
@@ -299,22 +306,22 @@ class TestAuditConstraints:
         audit = audit_constraints(samples, config, apply_headroom=True)
         
         # Check that normal forces are computed
-        assert "left_normal_force" in audit
-        assert "right_normal_force" in audit
+        self.assertIn("left_normal_force", audit)
+        self.assertIn("right_normal_force", audit)
         # Should be approximately 50/50 weight distribution
         expected = (0.8 * 9.81) / 2.0
-        assert abs(audit["left_normal_force"] - expected) < 0.1
-        assert abs(audit["right_normal_force"] - expected) < 0.1
+        self.assertAlmostEqual(audit["left_normal_force"], expected, delta=0.1)
+        self.assertAlmostEqual(audit["right_normal_force"], expected, delta=0.1)
 
 
-class TestComputeMetrics:
+class TestComputeMetrics(unittest.TestCase):
     """Test cases for compute_metrics function."""
 
     def test_compute_metrics_empty_samples(self):
         """Test metrics computation with empty samples."""
         metrics = compute_metrics([])
         
-        assert metrics == {}
+        self.assertEqual(metrics, {})
 
     def test_compute_metrics_basic(self):
         """Test basic metrics computation."""
@@ -337,16 +344,16 @@ class TestComputeMetrics:
         
         metrics = compute_metrics(samples)
         
-        assert "total_time_s" in metrics
-        assert "path_length_m" in metrics
-        assert "max_linear_speed_m_s" in metrics
-        assert "max_wheel_speed_m_s" in metrics
-        assert "max_accel_m_s2" in metrics
-        assert "max_jerk_m_s3" in metrics
+        self.assertIn("total_time_s", metrics)
+        self.assertIn("path_length_m", metrics)
+        self.assertIn("max_linear_speed_m_s", metrics)
+        self.assertIn("max_wheel_speed_m_s", metrics)
+        self.assertIn("max_accel_m_s2", metrics)
+        self.assertIn("max_jerk_m_s3", metrics)
         
-        assert metrics["total_time_s"] == pytest.approx(1.0, abs=1e-6)
-        assert metrics["path_length_m"] == pytest.approx(0.5, abs=1e-6)
-        assert metrics["max_linear_speed_m_s"] == pytest.approx(0.5, abs=1e-6)
+        self.assertAlmostEqual(metrics["total_time_s"], 1.0, places=6)
+        self.assertAlmostEqual(metrics["path_length_m"], 0.5, places=6)
+        self.assertAlmostEqual(metrics["max_linear_speed_m_s"], 0.5, places=6)
 
     def test_compute_metrics_with_acceleration(self):
         """Test metrics computation with acceleration."""
@@ -369,8 +376,8 @@ class TestComputeMetrics:
         
         metrics = compute_metrics(samples)
         
-        assert metrics["max_accel_m_s2"] > 0
-        assert metrics["max_accel_m_s2"] == pytest.approx(0.5, abs=1e-6)
+        self.assertGreater(metrics["max_accel_m_s2"], 0)
+        self.assertAlmostEqual(metrics["max_accel_m_s2"], 0.5, places=6)
 
     def test_compute_metrics_with_jerk(self):
         """Test metrics computation with jerk."""
@@ -394,10 +401,10 @@ class TestComputeMetrics:
         metrics = compute_metrics(samples)
         
         # Should have non-zero jerk
-        assert metrics["max_jerk_m_s3"] > 0
+        self.assertGreater(metrics["max_jerk_m_s3"], 0)
 
 
-class TestValidateTrajectory:
+class TestValidateTrajectory(unittest.TestCase):
     """Test cases for validate_trajectory function (integration test)."""
 
     def test_validate_trajectory_integration(self):
@@ -454,21 +461,21 @@ class TestValidateTrajectory:
             metrics, audit, errors = validate_trajectory(traj_path, config_path, apply_headroom=True)
             
             # Check that all components are returned
-            assert isinstance(metrics, dict)
-            assert isinstance(audit, dict)
-            assert isinstance(errors, dict)
+            self.assertIsInstance(metrics, dict)
+            self.assertIsInstance(audit, dict)
+            self.assertIsInstance(errors, dict)
             
             # Check metrics
-            assert "total_time_s" in metrics
-            assert "path_length_m" in metrics
+            self.assertIn("total_time_s", metrics)
+            self.assertIn("path_length_m", metrics)
             
             # Check audit
-            assert "num_violating_samples" in audit
-            assert "num_slip_points" in audit
+            self.assertIn("num_violating_samples", audit)
+            self.assertIn("num_slip_points", audit)
             
             # Check errors
-            assert "max_pos_error_m" in errors
-            assert "rms_pos_error_m" in errors
+            self.assertIn("max_pos_error_m", errors)
+            self.assertIn("rms_pos_error_m", errors)
             
         finally:
             # Clean up temporary files

@@ -30,20 +30,35 @@ class RobotConfig:
         Args:
             config_dict: Dictionary containing robot configuration in the new JSON format
         """
-        # Support both a nested "robot" key or a flat dictionary
-        robot_cfg = config_dict.get("robot", config_dict)
-        
-        self.mass = robot_cfg.get("mass", self.DEFAULT_MASS)
-        self.inertia = robot_cfg.get("inertia", self.DEFAULT_INERTIA)
-        self.track_width = robot_cfg.get("track_width", self.DEFAULT_TRACK_WIDTH)
-        self.wheel_radius = robot_cfg.get("wheel_radius", self.DEFAULT_WHEEL_RADIUS)
-        self.v_max_rad_s = robot_cfg.get("v_max_rad_s", self.DEFAULT_VMAX)
-        self.t_max_nm = robot_cfg.get("t_max_nm", self.DEFAULT_TMAX)
-        self.gearing = robot_cfg.get("gearing", self.DEFAULT_GEARING)
-        self.cof = robot_cfg.get("cof", self.DEFAULT_COF)
-        self.g = robot_cfg.get("gravity", self.GRAVITY)
-        self.torque_headroom = robot_cfg.get("torque_headroom", self.DEFAULT_TORQUE_HEADROOM)
-        self.speed_headroom = robot_cfg.get("speed_headroom", self.DEFAULT_SPEED_HEADROOM)
+        # Support both a nested "robot" key, a nested "config" key, or a flat dictionary
+        if "robot" in config_dict:
+            robot_cfg = config_dict["robot"]
+        elif "config" in config_dict:
+            robot_cfg = config_dict["config"]
+        else:
+            robot_cfg = config_dict
+            
+        def get_val(key: str, default: Any, old_key: Optional[str] = None) -> Any:
+            item = robot_cfg.get(key)
+            if item is None and old_key is not None:
+                item = robot_cfg.get(old_key)
+            if item is None:
+                return default
+            if isinstance(item, dict) and "val" in item:
+                return item["val"]
+            return item
+
+        self.mass = get_val("mass", self.DEFAULT_MASS)
+        self.inertia = get_val("inertia", self.DEFAULT_INERTIA)
+        self.track_width = get_val("track_width", self.DEFAULT_TRACK_WIDTH, "differentialTrackWidth")
+        self.wheel_radius = get_val("wheel_radius", self.DEFAULT_WHEEL_RADIUS, "radius")
+        self.v_max_rad_s = get_val("v_max_rad_s", self.DEFAULT_VMAX, "vmax")
+        self.t_max_nm = get_val("t_max_nm", self.DEFAULT_TMAX, "tmax")
+        self.gearing = get_val("gearing", self.DEFAULT_GEARING)
+        self.cof = get_val("cof", self.DEFAULT_COF)
+        self.g = get_val("gravity", self.GRAVITY)
+        self.torque_headroom = get_val("torque_headroom", self.DEFAULT_TORQUE_HEADROOM, "torqueHeadroom")
+        self.speed_headroom = get_val("speed_headroom", self.DEFAULT_SPEED_HEADROOM, "speedHeadroom")
         
         # Store multiverse config if present
         self.multiverse_config = config_dict.get("multiverse", {})
@@ -83,7 +98,9 @@ class RobotConfig:
         CasADi symbolic version of get_max_force_at_velocity.
         """
         omega = (v_wheel / self.wheel_radius) * self.gearing
-        torque = self.t_max_nm * (1.0 - ca.fabs(omega) / self.v_max_rad_s)
+        # Use smooth approximation of absolute value to prevent IPOPT step computation failures at zero speed
+        abs_omega = ca.sqrt(omega**2 + 1e-8)
+        torque = self.t_max_nm * (1.0 - abs_omega / self.v_max_rad_s)
         # NOTE: clamping at zero means no braking force above no-load speed.
         torque = ca.fmax(0, torque)
         force = (torque / self.wheel_radius) * self.gearing

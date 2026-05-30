@@ -6,6 +6,28 @@ from immrax import Interval, natif
 from jax_robot_model import JAXRobotConfig, JAXDifferentialDriveModel
 from jax_ramsete import JAXRamseteController, smooth_deadband
 from typing import List, Dict, Any, Tuple
+import math
+
+def unroll_trajectory_headings(samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not samples: return []
+    unrolled = []
+    current_offset = 0.0
+    last_h = samples[0]['heading']
+    
+    for s in samples:
+        h = s['heading']
+        # Detect if we wrapped around the pi boundary
+        if h - last_h > math.pi:
+            current_offset -= 2 * math.pi
+        elif h - last_h < -math.pi:
+            current_offset += 2 * math.pi
+            
+        new_s = s.copy()
+        new_s['heading'] = h + current_offset
+        unrolled.append(new_s)
+        last_h = h
+        
+    return unrolled
 
 class ImmraxValidator:
     def __init__(self, config: JAXRobotConfig):
@@ -58,8 +80,8 @@ class ImmraxValidator:
         # Reachability is causing interval explosion due to wrapping/dynamics issues in this environment.
         # We'll use the worst-case force violations as a proxy for safety in the verdict,
         # but keep the reachability report for visualization if possible.
-
-        reach_report = self.compute_reachability(samples, backlash_range)
+        unrolled_samples = unroll_trajectory_headings(samples)
+        reach_report = self.compute_reachability(unrolled_samples, backlash_range)
 
         # Pass if no interval violations.
         max_motor_vio = jnp.maximum(jnp.max(motor_vios_l), jnp.max(motor_vios_r))

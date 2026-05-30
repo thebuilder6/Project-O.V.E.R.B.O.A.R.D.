@@ -18,10 +18,14 @@ import sys
 import time
 
 # JAX Imports
-import jax
-import jax.numpy as jnp
-from jax_robot_model import JAXRobotConfig
-from jax_optimizer import generate_candidates_jax, get_jax_refiner
+try:
+    import jax
+    import jax.numpy as jnp
+    from jax_robot_model import JAXRobotConfig
+    from jax_optimizer import generate_candidates_jax, get_jax_refiner
+    HAS_JAX = True
+except ImportError:
+    HAS_JAX = False
 
 def resample_window_cpu(states_array, target_n=10):
     """
@@ -205,9 +209,20 @@ class TrajectoryCritic:
         if len(samples) < 3: return 0.0
         jerk = 0.0
         for k in range(len(samples)-2):
-            dt = max(samples[k+1]['t']-samples[k]['t'], 1e-3)
-            jerk += ((samples[k+2]['vl']-2*samples[k+1]['vl']+samples[k]['vl'])/dt**2)**2
-            jerk += ((samples[k+2]['vr']-2*samples[k+1]['vr']+samples[k]['vr'])/dt**2)**2
+            # --- CHANGED: Align Critic with CasADi Pseudo-Jerk (No dt division) ---
+            # If the samples already contain pre-calculated accelerations:
+            if 'al' in samples[k] and 'al' in samples[k+1]:
+                jerk += (samples[k+1]['al'] - samples[k]['al'])**2
+                jerk += (samples[k+1]['ar'] - samples[k]['ar'])**2
+            else:
+                # Fallback if raw states are used
+                dt = max(samples[k+1]['t']-samples[k]['t'], 1e-3)
+                al1 = (samples[k+1]['vl'] - samples[k]['vl']) / dt
+                al2 = (samples[k+2]['vl'] - samples[k+1]['vl']) / dt
+                ar1 = (samples[k+1]['vr'] - samples[k]['vr']) / dt
+                ar2 = (samples[k+2]['vr'] - samples[k+1]['vr']) / dt
+                jerk += (al2 - al1)**2 + (ar2 - ar1)**2
+            # -----------------------------------------------------------------------
         return jerk
     
     def _calculate_curvature_cost(self, samples):
@@ -227,6 +242,8 @@ class MasterTrajectoryOptimizer:
     """Orchestrates the Multi-Verse refinement pipeline (JAX Enhanced)."""
 
     def __init__(self, config: RobotConfig, enable_parallel: bool = True, num_workers: int = 8, verbose: bool = True) -> None:
+        if not HAS_JAX:
+            raise ImportError("JAX is required for Multi-Verse optimization. Please install JAX or run with the --simple flag.")
         self.config = config
         self.enable_parallel = enable_parallel
         self.num_workers = num_workers

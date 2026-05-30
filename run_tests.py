@@ -12,10 +12,23 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
-# Import test modules
-from tests.test_jax_heuristics import TestJAXHeuristics
-from tests.test_refinement_accuracy import TestRefinementAccuracy
-from tests.test_critic_metrics import TestCriticMetrics
+# Import test modules (non-JAX dependent)
+from tests.test_optimizer import TestTrajectoryOptimizer
+from tests.test_robot_model import TestRobotConfig, TestDifferentialDriveModel
+from tests.test_validator import TestForwardIntegrate, TestAuditConstraints, TestComputeMetrics, TestValidateTrajectory
+
+# JAX-dependent tests (skip if jax not installed)
+try:
+    from tests.test_jax_heuristics import TestJAXHeuristics
+    from tests.test_jax_ramsete import TestJAXRamsete
+    from tests.test_refinement_accuracy import TestRefinementAccuracy
+    from tests.test_stomp_variants import TestSTOMPVariants
+    from tests.test_teb_topologies import TestTEBTopologies
+    from tests.test_critic_metrics import TestCriticMetrics
+    JAX_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: jax not installed, skipping JAX-dependent tests ({e})")
+    JAX_AVAILABLE = False
 
 
 def run_tests():
@@ -25,9 +38,20 @@ def run_tests():
     suite = unittest.TestSuite()
     
     # Add all test classes
-    suite.addTests(loader.loadTestsFromTestCase(TestJAXHeuristics))
-    suite.addTests(loader.loadTestsFromTestCase(TestRefinementAccuracy))
-    suite.addTests(loader.loadTestsFromTestCase(TestCriticMetrics))
+    if JAX_AVAILABLE:
+        suite.addTests(loader.loadTestsFromTestCase(TestJAXHeuristics))
+        suite.addTests(loader.loadTestsFromTestCase(TestJAXRamsete))
+        suite.addTests(loader.loadTestsFromTestCase(TestRefinementAccuracy))
+        suite.addTests(loader.loadTestsFromTestCase(TestSTOMPVariants))
+        suite.addTests(loader.loadTestsFromTestCase(TestTEBTopologies))
+        suite.addTests(loader.loadTestsFromTestCase(TestCriticMetrics))
+    suite.addTests(loader.loadTestsFromTestCase(TestTrajectoryOptimizer))
+    suite.addTests(loader.loadTestsFromTestCase(TestRobotConfig))
+    suite.addTests(loader.loadTestsFromTestCase(TestDifferentialDriveModel))
+    suite.addTests(loader.loadTestsFromTestCase(TestForwardIntegrate))
+    suite.addTests(loader.loadTestsFromTestCase(TestAuditConstraints))
+    suite.addTests(loader.loadTestsFromTestCase(TestComputeMetrics))
+    suite.addTests(loader.loadTestsFromTestCase(TestValidateTrajectory))
     
     # Run tests
     runner = unittest.TextTestRunner(verbosity=2)

@@ -114,14 +114,18 @@ class TrajectoryOptimizer:
             max_fl = self.config.get_max_force_symbolic(vl[k], apply_headroom)
             max_fr = self.config.get_max_force_symbolic(vr[k], apply_headroom)
 
-            # Motor limits
-            opti.subject_to(ca.fabs(fl) <= max_fl)
-            opti.subject_to(ca.fabs(fr) <= max_fr)
+            # Motor limits (reformulated as two differentiable inequalities)
+            opti.subject_to(fl <= max_fl)
+            opti.subject_to(fl >= -max_fl)
+            opti.subject_to(fr <= max_fr)
+            opti.subject_to(fr >= -max_fr)
 
-            # Traction limit
-            f_total = ca.fabs(fl) + ca.fabs(fr)
+            # Traction limit (reformulated as four differentiable inequalities to avoid ca.fabs)
             f_traction_max = self.config.cof * self.config.mass * self.config.g
-            opti.subject_to(f_total <= f_traction_max)
+            opti.subject_to(fl + fr <= f_traction_max)
+            opti.subject_to(fl - fr <= f_traction_max)
+            opti.subject_to(-fl + fr <= f_traction_max)
+            opti.subject_to(-fl - fr <= f_traction_max)
 
         # Waypoint constraints
         for i, wp in enumerate(waypoints):
@@ -175,6 +179,10 @@ class TrajectoryOptimizer:
             "nlp_scaling_method": "gradient-based",
             "hessian_approximation": "limited-memory",
             "sb": "yes",  # Suppress Ipopt banner
+            # --- ADD THESE 3 LINES ---
+            "mu_strategy": "adaptive",             # Massively speeds up Phase 2
+            "warm_start_init_point": "yes",        # Crucial for Phase 5 (Polish)
+            "warm_start_bound_push": 1e-6,         # Prevent boundary sticking
         }
         opti.solver("ipopt", p_opts, s_opts)
 

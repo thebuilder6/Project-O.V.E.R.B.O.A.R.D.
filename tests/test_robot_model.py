@@ -2,12 +2,12 @@
 Unit tests for robot_model.py
 """
 
-import pytest
+import unittest
 import numpy as np
 from robot_model import RobotConfig, DifferentialDriveModel
 
 
-class TestRobotConfig:
+class TestRobotConfig(unittest.TestCase):
     """Test cases for RobotConfig class."""
 
     def test_init_with_new_json_format(self):
@@ -34,18 +34,18 @@ class TestRobotConfig:
         }
         config = RobotConfig(config_dict)
         
-        assert config.mass == 0.8
-        assert config.inertia == 0.002
-        assert config.track_width == 0.1
-        assert config.wheel_radius == 0.03
-        assert config.v_max_rad_s == 15.0
-        assert config.t_max_nm == 0.05
-        assert config.gearing == 1.0
-        assert config.cof == 0.5
-        assert config.g == 9.81
-        assert config.torque_headroom == 0.9
-        assert config.speed_headroom == 0.95
-        assert config.multiverse_config == {"bootstrap": {"turning_radius": 0.3}}
+        self.assertEqual(config.mass, 0.8)
+        self.assertEqual(config.inertia, 0.002)
+        self.assertEqual(config.track_width, 0.1)
+        self.assertEqual(config.wheel_radius, 0.03)
+        self.assertEqual(config.v_max_rad_s, 15.0)
+        self.assertEqual(config.t_max_nm, 0.05)
+        self.assertEqual(config.gearing, 1.0)
+        self.assertEqual(config.cof, 0.5)
+        self.assertEqual(config.g, 9.81)
+        self.assertEqual(config.torque_headroom, 0.9)
+        self.assertEqual(config.speed_headroom, 0.95)
+        self.assertEqual(config.multiverse_config, {"bootstrap": {"turning_radius": 0.3}})
 
     def test_init_with_old_choreo_format(self):
         """Test initialization with old Choreo format."""
@@ -65,33 +65,33 @@ class TestRobotConfig:
         }
         config = RobotConfig(config_dict)
         
-        assert config.mass == 0.7
-        assert config.inertia == 0.001
-        assert config.track_width == 0.095
-        assert config.wheel_radius == 0.028
-        assert config.v_max_rad_s == 15.7
-        assert config.t_max_nm == 0.04
-        assert config.gearing == 1.0
-        assert config.cof == 0.45
-        assert config.g == 9.81  # Default gravity
-        assert config.torque_headroom == 0.85
-        assert config.speed_headroom == 0.90
-        assert config.multiverse_config == {}
+        self.assertEqual(config.mass, 0.7)
+        self.assertEqual(config.inertia, 0.001)
+        self.assertEqual(config.track_width, 0.095)
+        self.assertEqual(config.wheel_radius, 0.028)
+        self.assertEqual(config.v_max_rad_s, 15.7)
+        self.assertEqual(config.t_max_nm, 0.04)
+        self.assertEqual(config.gearing, 1.0)
+        self.assertEqual(config.cof, 0.45)
+        self.assertEqual(config.g, 9.81)  # Default gravity
+        self.assertEqual(config.torque_headroom, 0.85)
+        self.assertEqual(config.speed_headroom, 0.90)
+        self.assertEqual(config.multiverse_config, {})
 
     def test_init_with_defaults(self):
         """Test initialization with default values."""
         config_dict = {}
         config = RobotConfig(config_dict)
         
-        assert config.mass == RobotConfig.DEFAULT_MASS
-        assert config.inertia == RobotConfig.DEFAULT_INERTIA
-        assert config.track_width == RobotConfig.DEFAULT_TRACK_WIDTH
-        assert config.wheel_radius == RobotConfig.DEFAULT_WHEEL_RADIUS
-        assert config.v_max_rad_s == RobotConfig.DEFAULT_VMAX
-        assert config.t_max_nm == RobotConfig.DEFAULT_TMAX
-        assert config.gearing == RobotConfig.DEFAULT_GEARING
-        assert config.cof == RobotConfig.DEFAULT_COF
-        assert config.g == RobotConfig.GRAVITY
+        self.assertEqual(config.mass, RobotConfig.DEFAULT_MASS)
+        self.assertEqual(config.inertia, RobotConfig.DEFAULT_INERTIA)
+        self.assertEqual(config.track_width, RobotConfig.DEFAULT_TRACK_WIDTH)
+        self.assertEqual(config.wheel_radius, RobotConfig.DEFAULT_WHEEL_RADIUS)
+        self.assertEqual(config.v_max_rad_s, RobotConfig.DEFAULT_VMAX)
+        self.assertEqual(config.t_max_nm, RobotConfig.DEFAULT_TMAX)
+        self.assertEqual(config.gearing, RobotConfig.DEFAULT_GEARING)
+        self.assertEqual(config.cof, RobotConfig.DEFAULT_COF)
+        self.assertEqual(config.g, RobotConfig.GRAVITY)
 
     def test_get_max_force_at_velocity_zero(self):
         """Test max force calculation at zero velocity."""
@@ -102,7 +102,7 @@ class TestRobotConfig:
         
         force = config.get_max_force_at_velocity(0.0, apply_headroom=False)
         expected = 0.05 / 0.03  # t_max / wheel_radius
-        assert abs(force - expected) < 1e-6
+        self.assertAlmostEqual(force, expected, places=6)
 
     def test_get_max_force_at_velocity_max(self):
         """Test max force calculation at max velocity."""
@@ -112,7 +112,7 @@ class TestRobotConfig:
         config = RobotConfig(config_dict)
         
         force = config.get_max_force_at_velocity(0.03 * 15.0, apply_headroom=False)
-        assert force == 0.0  # No force at max velocity
+        self.assertAlmostEqual(force, 0.0, places=6)  # No force at max velocity
 
     def test_get_max_force_with_headroom(self):
         """Test max force calculation with headroom."""
@@ -124,7 +124,7 @@ class TestRobotConfig:
         force_no_headroom = config.get_max_force_at_velocity(0.0, apply_headroom=False)
         force_with_headroom = config.get_max_force_at_velocity(0.0, apply_headroom=True)
         
-        assert force_with_headroom == force_no_headroom * 0.8
+        self.assertEqual(force_with_headroom, force_no_headroom * 0.8)
 
     def test_max_linear_speed(self):
         """Test max linear speed calculation."""
@@ -135,7 +135,7 @@ class TestRobotConfig:
         
         speed = config.max_linear_speed(apply_headroom=False)
         expected = 15.0 * 0.03  # v_max * wheel_radius
-        assert abs(speed - expected) < 1e-6
+        self.assertAlmostEqual(speed, expected, places=6)
 
     def test_max_linear_speed_with_headroom(self):
         """Test max linear speed with headroom."""
@@ -147,10 +147,10 @@ class TestRobotConfig:
         speed_no_headroom = config.max_linear_speed(apply_headroom=False)
         speed_with_headroom = config.max_linear_speed(apply_headroom=True)
         
-        assert speed_with_headroom == speed_no_headroom * 0.9
+        self.assertEqual(speed_with_headroom, speed_no_headroom * 0.9)
 
 
-class TestDifferentialDriveModel:
+class TestDifferentialDriveModel(unittest.TestCase):
     """Test cases for DifferentialDriveModel class."""
 
     def test_get_dynamics_straight_line(self):
@@ -165,7 +165,7 @@ class TestDifferentialDriveModel:
         fl, fr = model.get_dynamics(vl=0.5, vr=0.5, al=1.0, ar=1.0)
         
         # Forces should be equal for straight line motion
-        assert abs(fl - fr) < 1e-6
+        self.assertAlmostEqual(fl, fr, places=6)
 
     def test_get_dynamics_turning(self):
         """Test dynamics calculation for turning motion."""
@@ -179,7 +179,7 @@ class TestDifferentialDriveModel:
         fl, fr = model.get_dynamics(vl=0.5, vr=0.5, al=0.0, ar=2.0)
         
         # Forces should be different for turning
-        assert abs(fl - fr) > 1e-6
+        self.assertGreater(abs(fl - fr), 1e-6)
 
     def test_check_constraints_no_violation(self):
         """Test constraint checking with no violations."""
@@ -192,9 +192,9 @@ class TestDifferentialDriveModel:
         # Low acceleration should not violate constraints
         violations = model.check_constraints(vl=0.1, vr=0.1, al=0.1, ar=0.1, apply_headroom=True)
         
-        assert violations["left_motor_violation"] == 0.0
-        assert violations["right_motor_violation"] == 0.0
-        assert violations["traction_violation"] == 0.0
+        self.assertEqual(violations["left_motor_violation"], 0.0)
+        self.assertEqual(violations["right_motor_violation"], 0.0)
+        self.assertEqual(violations["traction_violation"], 0.0)
 
     def test_check_constraints_motor_limit(self):
         """Test constraint checking with motor limit violation."""
@@ -208,7 +208,7 @@ class TestDifferentialDriveModel:
         violations = model.check_constraints(vl=0.1, vr=0.1, al=100.0, ar=100.0, apply_headroom=False)
         
         # Should have motor violations
-        assert violations["left_motor_violation"] > 0.0 or violations["right_motor_violation"] > 0.0
+        self.assertTrue(violations["left_motor_violation"] > 0.0 or violations["right_motor_violation"] > 0.0)
 
     def test_get_wheel_normal_forces_static(self):
         """Test normal force calculation for static case."""
@@ -223,8 +223,8 @@ class TestDifferentialDriveModel:
         
         # Should be 50/50 weight distribution
         expected = (0.8 * 9.81) / 2.0
-        assert abs(nl - expected) < 1e-6
-        assert abs(nr - expected) < 1e-6
+        self.assertAlmostEqual(nl, expected, places=6)
+        self.assertAlmostEqual(nr, expected, places=6)
 
     def test_get_wheel_normal_forces_acceleration(self):
         """Test normal force calculation with acceleration."""
@@ -240,4 +240,4 @@ class TestDifferentialDriveModel:
         # Weight should shift (longitudinal transfer)
         base_normal = (0.8 * 9.81) / 2.0
         # nl and nr should differ from base_normal due to weight transfer
-        assert abs(nl - base_normal) > 1e-6 or abs(nr - base_normal) > 1e-6
+        self.assertTrue(abs(nl - base_normal) > 1e-6 or abs(nr - base_normal) > 1e-6)

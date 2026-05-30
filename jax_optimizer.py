@@ -105,8 +105,8 @@ def get_jax_refiner(config: JAXRobotConfig):
              # Signature of pg.run: params, hyperparams_proj, *args
              # *args corresponds to s, e, b, config, num_samples in local_trajectory_cost
              # hyperparams_proj corresponds to (s, e, config, num_samples) in local_trajectory_projection
-             sol = pg.run(init_guess, (s_state, e_state, config, 10), s_state, e_state, bias, config, 10)
-             return sol.params, local_trajectory_cost(sol.params, s_state, e_state, bias, config, 10), sol.state.iter_num
+             sol = pg.run(init_guess, (s_state, e_state, config, n_samples), s_state, e_state, bias, config, n_samples)
+             return sol.params, local_trajectory_cost(sol.params, s_state, e_state, bias, config, n_samples), sol.state.iter_num
 
         return vmap(solve_single)(init_guesses, biases)
     return refine_batch
